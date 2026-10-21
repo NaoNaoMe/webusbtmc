@@ -75,18 +75,26 @@ class GetCurve {
   }
 
   async fetch_tektronix() {
+    if(this.#isBusy) {
+      return { data_ch1: [], data_ch2: [], length: NaN, rate: NaN };
+    }
+
+    this.#isBusy = true;
+
+    try {
+      return await this.fetch_procedure_tektronix();
+    } finally {
+      this.#isBusy = false;
+    }
+  }
+
+  async fetch_procedure_tektronix() {
     let tmp;
     let raw;
     let int8Array;
 
     let yoff;
     let ymult;
-
-    if(this.#isBusy) {
-      return { data_ch1: [], data_ch2: [], length: NaN, rate: NaN };
-    }
-
-    this.#isBusy = true;
 
     await this.#tmc.write('HORizontal:SAMPLERate?');
     const rate = await this.#tmc.read();
@@ -101,7 +109,7 @@ class GetCurve {
 
     await this.#tmc.write('CURV?');
     raw = await this.#tmc.readBlockData();
-    int8Array = new Int8Array(raw.buffer);
+    int8Array = new Int8Array(raw.buffer, raw.byteOffset, raw.byteLength);
 
     await this.#tmc.write('WFMOutpre:YOFf?');
     tmp = await this.#tmc.read();
@@ -120,7 +128,7 @@ class GetCurve {
 
     await this.#tmc.write('CURV?');
     raw = await this.#tmc.readBlockData();
-    int8Array = new Int8Array(raw.buffer);
+    int8Array = new Int8Array(raw.buffer, raw.byteOffset, raw.byteLength);
 
     await this.#tmc.write('WFMOutpre:YOFf?');
     tmp = await this.#tmc.read();
@@ -134,8 +142,6 @@ class GetCurve {
     for (let i = 0; i < int8Array.length; i++) {
       data_ch2.push((int8Array[i] - yoff) * ymult);
     }
-
-    this.#isBusy = false;
 
     if(data_ch1.length !== data_ch2.length) {
       return { data_ch1: [], data_ch2: [], length: NaN, rate: NaN };
@@ -152,16 +158,25 @@ class GetCurve {
 
     this.#isBusy = true;
 
-    await this.#tmc.write(':STOP');
-    await this.#tmc.delay(100);
+    try {
+      await this.#tmc.write(':STOP');
+      await this.#tmc.delay(100);
 
-    const result = await this.fetch_procedure_keysight();
+      let result;
+      try {
+        result = await this.fetch_procedure_keysight();
+      } catch (error) {
+        // Do not leave the oscilloscope stopped (best effort).
+        await this.#tmc.write(':RUN').catch(() => { });
+        throw error;
+      }
 
-    await this.#tmc.write(':RUN');
+      await this.#tmc.write(':RUN');
 
-    this.#isBusy = false;
-
-    return { data_ch1: result.data_ch1, data_ch2: result.data_ch2, length: result.data_ch1.length, rate: result.rate };
+      return { data_ch1: result.data_ch1, data_ch2: result.data_ch2, length: result.data_ch1.length, rate: result.rate };
+    } finally {
+      this.#isBusy = false;
+    }
   }
 
 
@@ -215,7 +230,7 @@ class GetCurve {
 
     await this.#tmc.write(':WAV:DATA?');
     raw = await this.#tmc.readBlockData();
-    buff = new Uint8Array(raw.buffer);
+    buff = new Uint8Array(raw.buffer, raw.byteOffset, raw.byteLength);
 
     let data_ch1 = [];
     for (let i = 0; i < buff.length; i++) {
@@ -255,14 +270,12 @@ class GetCurve {
 
     await this.#tmc.write(':WAV:DATA?');
     raw = await this.#tmc.readBlockData();
-    buff = new Uint8Array(raw.buffer);
+    buff = new Uint8Array(raw.buffer, raw.byteOffset, raw.byteLength);
 
     let data_ch2 = [];
     for (let i = 0; i < buff.length; i++) {
       data_ch2.push(((buff[i] - yoff) * ymult) + yorgn);
     }
-
-    this.#isBusy = false;
 
     if(data_ch1.length !== data_ch2.length) {
       return { data_ch1: [], data_ch2: [], length: NaN, rate: NaN };
