@@ -85,9 +85,14 @@ function display(bytes, name) {
 
 connectButton.onclick = () => {
   if (worker.opened) {
-    worker.close();
-    connectButton.innerHTML = plugIcon + ' Connect';
-    takeashotButton.disabled = true;
+    worker.close()
+      .catch((error) => {
+        alert(error);
+      })
+      .finally(() => {
+        connectButton.innerHTML = plugIcon + ' Connect';
+        takeashotButton.disabled = true;
+      });
   } else {
     const filters = [
       { 'classCode': 0xFE, 'subclassCode': 0x03, 'protocolCode': 0x01 },
