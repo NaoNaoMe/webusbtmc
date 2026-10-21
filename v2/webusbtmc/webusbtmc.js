@@ -2,11 +2,66 @@
  * Copyright (C) Naoya Imai
  *
  * Licensed under Apache 2.0
- * 
+ *
  * USBTMC on WebUSB API
  */
 
 'use strict';
+
+// ---------------------------------------------------------------------------
+// Errors
+// ---------------------------------------------------------------------------
+
+/** Base class of every error thrown by this driver. */
+export class UsbtmcError extends Error {
+  constructor(message, options) {
+    super(message, options);
+    this.name = new.target.name;
+  }
+}
+
+/** A Bulk-IN / Interrupt-IN transfer did not complete in time. */
+export class UsbtmcTimeoutError extends UsbtmcError { }
+
+/** The device answered in a way the USBTMC specification does not allow. */
+export class UsbtmcProtocolError extends UsbtmcError { }
+
+// ---------------------------------------------------------------------------
+// Constants
+// ---------------------------------------------------------------------------
+
+// Bulk message IDs
+const MSGID_DEV_DEP_MSG_OUT = 0x01;
+const MSGID_REQUEST_DEV_DEP_MSG_IN = 0x02;
+const MSGID_DEV_DEP_MSG_IN = 0x02;
+
+// Control requests (USBTMC)
+const REQ_INITIATE_ABORT_BULK_IN = 0x03;
+const REQ_CHECK_ABORT_BULK_IN_STATUS = 0x04;
+const REQ_INITIATE_CLEAR = 0x05;
+const REQ_CHECK_CLEAR_STATUS = 0x06;
+const REQ_GET_CAPABILITIES = 0x07;
+
+// Control requests (USB488)
+const REQ_READ_STATUS_BYTE = 128;
+const REQ_REN_CONTROL = 160;
+const REQ_GO_TO_LOCAL = 161;
+
+// USBTMC_status
+const STATUS_SUCCESS = 0x01;
+const STATUS_PENDING = 0x02;
+const STATUS_FAILED = 0x80;
+const STATUS_TRANSFER_NOT_IN_PROGRESS = 0x81;
+
+const HEADER_SIZE = 12;
+const MAX_POLLS = 16;
+const POLL_INTERVAL_MS = 10;
+const DRAIN_TIMEOUT_MS = 100;
+const DRAIN_LIMIT_MS = 2000;
+const MAX_SKIPPED_EMPTY_PACKETS = 2;
+
+const TIMED_OUT = Symbol('timed out');
+
 class Webusbtmc {
   #bcdUSBTMC;
   #usbtmcInterfaceCapabilities;
@@ -19,6 +74,8 @@ class Webusbtmc {
   #rtbbTag;
 
   #device;
+  #interfaceNumber;
+  #alternateSetting;
 
   #bulkinEndpointNum;
   #bulkinPacketSize;
@@ -31,6 +88,12 @@ class Webusbtmc {
   #terminatorRead;
 
   constructor() {
+    this.#terminatorWrite = '\n';
+    this.#terminatorRead = '\n';
+    this.#resetState();
+  }
+
+  #resetState() {
     this.#bcdUSBTMC = -1;
     this.#usbtmcInterfaceCapabilities = -1;
     this.#usbtmcDeviceCapabilities = -1;
@@ -41,15 +104,16 @@ class Webusbtmc {
     this.#bulkoutbTag = 1;
     this.#rtbbTag = 2;
 
+    this.#device = null;
+    this.#interfaceNumber = 0;
+    this.#alternateSetting = 0;
+
     this.#bulkinEndpointNum = -1;
     this.#bulkinPacketSize = 64;
     this.#bulkoutEndpointNum = -1;
     this.#bulkoutPacketSize = 64;
     this.#interruptinEndpointNum = -1;
     this.#interruptinPacketSize = 64;
-
-    this.#terminatorWrite = '\n';
-    this.#terminatorRead = '\n';
   }
 
   get bcdUSBTMC() {
@@ -102,114 +166,120 @@ class Webusbtmc {
     return new Promise(resolve => setTimeout(resolve, ms, 'done'));
   }
 
+  // -------------------------------------------------------------------------
+  // Open / close
+  // -------------------------------------------------------------------------
+
   async open(device) {
-    let interfaceNumber = 0;
-    let alternateSetting = 0;
-    let found = false;
-    this.#bulkinEndpointNum = -1;
-    this.#bulkoutEndpointNum = -1;
-    this.#interruptinEndpointNum = -1;
+    if (this.opened) {
+      throw new UsbtmcError('A device is already open');
+    }
+    this.#resetState();
 
     await device.open();
-
     this.#device = device;
 
-    const configurationInterfaces = this.#device.configuration.interfaces;
-    configurationInterfaces.forEach((element) => {
-      element.alternates.forEach((elementalt) => {
-        if (elementalt.interfaceClass == 0xfe && elementalt.interfaceSubclass == 0x03 && elementalt.interfaceProtocol == 0x01) {
-          found = true;
-          interfaceNumber = element.interfaceNumber;
-          alternateSetting = elementalt.alternateSetting;
-
-          elementalt.endpoints.forEach((elementendpoint) => {
-            if (elementendpoint.type == 'bulk') {
-              if (elementendpoint.direction == 'out') {
-                this.#bulkoutEndpointNum = elementendpoint.endpointNumber;
-                this.#bulkoutPacketSize = elementendpoint.packetSize
-              } else if (elementendpoint.direction == 'in') {
-                this.#bulkinEndpointNum = elementendpoint.endpointNumber;
-                this.#bulkinPacketSize = elementendpoint.packetSize
-              }
-            } else if (elementendpoint.type == 'interrupt') {
-              if (elementendpoint.direction == 'in') {
-                this.#interruptinEndpointNum = elementendpoint.endpointNumber;
-                this.#interruptinPacketSize = elementendpoint.packetSize
-              }
-            }
-          });
-        }
-      });
-    });
-
-    if (!found) {
-      await this.#device.close();
-      throw new Error('No USBTMC interface found');
-    }
-
-    await this.#device.claimInterface(interfaceNumber);
-    await this.#device.selectAlternateInterface(interfaceNumber, alternateSetting);
-
-    let result = await this.#device.controlTransferIn({
-      'requestType': 'class',
-      'recipient': 'interface',
-      'request': 0x7, // USBTMC_GET_CAPABILITIES
-      'value': 0x00,
-      'index': 0
-    }, 24);
-
-    if (result.status == 'ok' && result.data.getUint8(0) == 0x01) {
-      this.#bcdUSBTMC = result.data.getUint8(2);
-      this.#bcdUSBTMC = this.#bcdUSBTMC << 8;
-      this.#bcdUSBTMC += result.data.getUint8(3);
-      this.#usbtmcInterfaceCapabilities = result.data.getUint8(4);
-      this.#usbtmcDeviceCapabilities = result.data.getUint8(5);
-      this.#bcdUSB488 = result.data.getUint8(12);
-      this.#bcdUSB488 = this.#bcdUSB488 << 8;
-      this.#bcdUSB488 += result.data.getUint8(13);
-      this.#usb488InterfaceCapabilities = result.data.getUint8(14);
-      this.#usb488DeviceCapabilities = result.data.getUint8(15);
-    } else {
-      throw new Error('reject!!');
-    }
-
-    if ((this.#usb488DeviceCapabilities & 0x02) == 0x02) {
-      // The interface accepts REN_CONTROL, GO_TO_LOCAL, and LOCAL_LOCKOUT requests.
-      result = await this.#device.controlTransferIn({
-        'requestType': 'class',
-        'recipient': 'interface',
-        'request': 160, // USBTMC_488_REN_CONTROL
-        'value': 0x01,
-        'index': 0
-      }, 1);
-
-      if (result.status != 'ok' || result.data.getUint8(0) != 0x01) {
-        throw new Error('reject!!');
+    try {
+      if (device.configuration === null) {
+        await device.selectConfiguration(1);
       }
+      this.#findInterface();
+
+      await device.claimInterface(this.#interfaceNumber);
+      await device.selectAlternateInterface(this.#interfaceNumber, this.#alternateSetting);
+
+      await this.#getCapabilities();
+
+      if ((this.#usb488DeviceCapabilities & 0x02) == 0x02) {
+        // The interface accepts REN_CONTROL, GO_TO_LOCAL, and LOCAL_LOCKOUT requests.
+        const data = await this.#controlIn('REN_CONTROL', 'interface', REQ_REN_CONTROL, 0x01, this.#interfaceNumber, 1);
+        this.#expectSuccess('REN_CONTROL', data.getUint8(0));
+      }
+    } catch (error) {
+      try {
+        await device.close();
+      } catch (closeError) {
+        // The original error is more useful.
+      }
+      this.#device = null;
+      throw error;
     }
   }
 
   async close() {
-    if ((this.#usb488DeviceCapabilities & 0x02) == 0x02) {
-      await this.#device.controlTransferIn({
-        'requestType': 'class',
-        'recipient': 'interface',
-        'request': 161, // USBTMC_488_GO_TO_LOCAL
-        'value': 0x00,
-        'index': 0
-      }, 1);
-
-      await this.#device.controlTransferIn({
-        'requestType': 'class',
-        'recipient': 'interface',
-        'request': 160, // USBTMC_488_REN_CONTROL
-        'value': 0x00,
-        'index': 0
-      }, 1);
+    if (!this.opened) {
+      return;
     }
 
-    await this.#device.close();
+    try {
+      if ((this.#usb488DeviceCapabilities & 0x02) == 0x02) {
+        await this.#controlIn('GO_TO_LOCAL', 'interface', REQ_GO_TO_LOCAL, 0x00, this.#interfaceNumber, 1);
+        await this.#controlIn('REN_CONTROL', 'interface', REQ_REN_CONTROL, 0x00, this.#interfaceNumber, 1);
+      }
+    } catch (error) {
+      // Best effort: the device may already be gone.
+    } finally {
+      await this.#device.close();
+    }
   }
+
+  #findInterface() {
+    let found = false;
+
+    for (const element of this.#device.configuration.interfaces) {
+      for (const elementalt of element.alternates) {
+        if (found) {
+          break;
+        }
+        if (elementalt.interfaceClass == 0xfe && elementalt.interfaceSubclass == 0x03 && elementalt.interfaceProtocol == 0x01) {
+          found = true;
+          this.#interfaceNumber = element.interfaceNumber;
+          this.#alternateSetting = elementalt.alternateSetting;
+
+          for (const elementendpoint of elementalt.endpoints) {
+            if (elementendpoint.type == 'bulk') {
+              if (elementendpoint.direction == 'out') {
+                this.#bulkoutEndpointNum = elementendpoint.endpointNumber;
+                this.#bulkoutPacketSize = elementendpoint.packetSize;
+              } else if (elementendpoint.direction == 'in') {
+                this.#bulkinEndpointNum = elementendpoint.endpointNumber;
+                this.#bulkinPacketSize = elementendpoint.packetSize;
+              }
+            } else if (elementendpoint.type == 'interrupt') {
+              if (elementendpoint.direction == 'in') {
+                this.#interruptinEndpointNum = elementendpoint.endpointNumber;
+                this.#interruptinPacketSize = elementendpoint.packetSize;
+              }
+            }
+          }
+        }
+      }
+    }
+
+    if (!found) {
+      throw new UsbtmcError('No USBTMC interface found');
+    }
+    if (this.#bulkinEndpointNum == -1 || this.#bulkoutEndpointNum == -1) {
+      throw new UsbtmcError('No appropriate Bulk-IN/Bulk-OUT endpoint found');
+    }
+  }
+
+  async #getCapabilities() {
+    const data = await this.#controlIn('GET_CAPABILITIES', 'interface', REQ_GET_CAPABILITIES, 0x00, this.#interfaceNumber, 24, 16);
+    this.#expectSuccess('GET_CAPABILITIES', data.getUint8(0));
+
+    // All multi-byte fields are little endian.
+    this.#bcdUSBTMC = data.getUint16(2, true);
+    this.#usbtmcInterfaceCapabilities = data.getUint8(4);
+    this.#usbtmcDeviceCapabilities = data.getUint8(5);
+    this.#bcdUSB488 = data.getUint16(12, true);
+    this.#usb488InterfaceCapabilities = data.getUint8(14);
+    this.#usb488DeviceCapabilities = data.getUint8(15);
+  }
+
+  // -------------------------------------------------------------------------
+  // Write
+  // -------------------------------------------------------------------------
 
   async write(text) {
     const textEncoder = new TextEncoder();
@@ -217,14 +287,32 @@ class Webusbtmc {
     await this.writeBytes(bytes);
   }
 
+  /**
+   * Sends bytes as DEV_DEP_MSG_OUT messages. Each message carries at most one
+   * Bulk-OUT packet; the last one has EOM set. Empty input sends nothing.
+   */
   async writeBytes(bytes) {
+    this.#assertOpened();
+
+    const maxPayload = this.#bulkoutPacketSize - HEADER_SIZE;
     let currentIndex = 0;
     while (currentIndex < bytes.length) {
-      const written = await this.send(bytes.slice(currentIndex));
-      currentIndex += written;
+      const size = Math.min(maxPayload, bytes.length - currentIndex);
+      const isLast = (currentIndex + size) >= bytes.length;
+      const attributes = isLast ? 0x01 : 0x00;   // D0: EOM
+      await this.#transmit(MSGID_DEV_DEP_MSG_OUT, size, attributes, 0x00, bytes.subarray(currentIndex, currentIndex + size));
+      currentIndex += size;
     }
   }
 
+  // -------------------------------------------------------------------------
+  // Read
+  // -------------------------------------------------------------------------
+
+  /**
+   * Reads a text response and removes one trailing read terminator.
+   * Throws UsbtmcTimeoutError / UsbtmcProtocolError / UsbtmcError on failure.
+   */
   async read(length = 1024, timeout = 5000) {
     const bytes = await this.readBytes(length, timeout);
     const textDecoder = new TextDecoder();
@@ -235,292 +323,323 @@ class Webusbtmc {
     return text;
   }
 
+  async query(text, length = 1024, timeout = 5000) {
+    await this.write(text);
+    return await this.read(length, timeout);
+  }
+
+  /**
+   * Reads one response of up to `length` bytes. Requests are repeated until
+   * the device sets EOM or `length` bytes have been received. If the response
+   * is longer than `length`, the rest stays in the device (use clear()).
+   * `timeout` applies to each Bulk-IN transfer.
+   */
   async readBytes(length = 1024, timeout = 5000) {
-    await this.request(length);
-    const timeoutID = setTimeout(() => { this.abortBulkIn(this).catch((error) => { console.log(error); }) }, timeout);
-    const output = await this.receive();
-    clearTimeout(timeoutID);
-    if (!output.data) {
-      console.log('receive failed');
-      return null;
-    }
-    return output.data;
-  }
+    this.#assertOpened();
 
-
-  async send(src) {
-    // DEV_DEP_MSG_OUT
-    return await this.transmit(0x01, src.length, src);
-  }
-
-
-  async request(length) {
-    // REQUEST_DEV_DEP_MSG_IN
-    return await this.transmit(0x02, length);
-  }
-
-
-  async transmit(cmd, length, src = null) {
-    if (this.#bulkoutEndpointNum == -1) {
-      throw new Error('No appropriate endpoint for transmit');
-    }
-
-    let size = 12;
-    if (src != null) {
-      size += length
-    }
-
-    if (size > this.#bulkoutPacketSize) {
-      size = this.#bulkoutPacketSize;
-    }
-
-    const moduloFour = size % 4;
-    if (moduloFour != 0) {
-      size = size - moduloFour + 4;
-    }
-
-    const message = new Uint8Array(size);
-
-    // 0:MsgID
-    message[0] = cmd;
-    // 1:bTag
-    message[1] = this.#bulkoutbTag;
-    // 2:bTagInverse
-    message[2] = ~this.#bulkoutbTag & 0xFF;
-    // 3:Reserved(0x00)
-    message[3] = 0x00;
-
-    if (src != null) {
-      // for DEV_DEP_MSG_OUT Bulk-OUT Header
-      let attributes = 0x01;  // The message is the last message.
-      if (length > (this.#bulkoutPacketSize - 12)) {
-        length = (this.#bulkoutPacketSize - 12);
-        attributes = 0x00;    // The message is not the last message.
+    const chunks = [];
+    let total = 0;
+    while (true) {
+      const message = await this.#readMessage(length - total, timeout);
+      if (message.data.length === 0 && !message.eom) {
+        throw new UsbtmcProtocolError('Empty DEV_DEP_MSG_IN without EOM');
       }
+      chunks.push(message.data);
+      total += message.data.length;
+      if (message.eom || total >= length) {
+        break;
+      }
+    }
+    return this.#concat(chunks, total);
+  }
 
-      // 4,5,6,7:TransferSize
-      message[4] = (length >> 0) & 0xFF;
-      message[5] = (length >> 8) & 0xFF;
-      message[6] = (length >> 16) & 0xFF;
-      message[7] = (length >> 24) & 0xFF;
+  /**
+   * Requests one DEV_DEP_MSG_IN (at most `maxLength` bytes) and receives it.
+   * The header is validated: MsgID, bTag, bTagInverse and TransferSize.
+   */
+  async #readMessage(maxLength, timeout) {
+    await this.#transmit(MSGID_REQUEST_DEV_DEP_MSG_IN, maxLength, 0x00, 0x00, null);
+    const expectedTag = this.#lastbulkoutbTag;
 
-      // 8:bmTransferAttributes
-      message[8] = attributes;
-      // 9:Reserved(0x00)
-      message[9] = 0x00;
-    } else {
-      // for REQUEST_DEV_DEP_MSG_IN Bulk-OUT Header
-      // 4,5,6,7:TransferSize
-      message[4] = (length >> 0) & 0xFF;
-      message[5] = (length >> 8) & 0xFF;
-      message[6] = (length >> 16) & 0xFF;
-      message[7] = (length >> 24) & 0xFF;
-
-      // 8:bmTransferAttributes
-      message[8] = 0x00; // The device must ignore TermChar
-      // 9:TermChar
-      message[9] = 0x00; // If bmTransferAttributes.D1 = 0, the device must ignore this field.
+    let first = await this.#bulkIn(this.#bulkinPacketSize, timeout);
+    // A zero-length packet may remain from the previous transfer.
+    for (let skipped = 0; first.byteLength === 0 && skipped < MAX_SKIPPED_EMPTY_PACKETS; skipped++) {
+      first = await this.#bulkIn(this.#bulkinPacketSize, timeout);
+    }
+    if (first.byteLength < HEADER_SIZE) {
+      throw new UsbtmcProtocolError('Bulk-IN packet is shorter than the USBTMC header');
     }
 
-    // 10,11:Reserved(0x00)
-    message[10] = 0x00;
-    message[11] = 0x00;
-
-    if (src != null) {
-      // Device dependent message data bytes
-      message.set(src.slice(0, length), 12);
+    if (first.getUint8(0) !== MSGID_DEV_DEP_MSG_IN) {
+      throw new UsbtmcProtocolError('Unexpected MsgID 0x' + first.getUint8(0).toString(16));
+    }
+    if (first.getUint8(1) !== expectedTag || first.getUint8(2) !== (~expectedTag & 0xFF)) {
+      throw new UsbtmcProtocolError('bTag mismatch in Bulk-IN header');
     }
 
-    const result = await this.#device.transferOut(this.#bulkoutEndpointNum, message);
-
-    if (result.status != 'ok' || result.bytesWritten < 0) {
-      throw new Error('Cannot transferout in transmit');
+    const transferSize = first.getUint32(4, true);
+    const eom = (first.getUint8(8) & 0x01) === 0x01;
+    if (transferSize > maxLength) {
+      throw new UsbtmcProtocolError('Device returned ' + transferSize + ' bytes, more than the ' + maxLength + ' requested');
     }
 
-    this.#lastbulkoutbTag = this.#bulkoutbTag;
+    const data = new Uint8Array(transferSize);
+    let received = Math.min(first.byteLength - HEADER_SIZE, transferSize);
+    data.set(new Uint8Array(first.buffer, first.byteOffset + HEADER_SIZE, received), 0);
+
+    while (received < transferSize) {
+      const chunk = await this.#bulkIn(this.#bulkinPacketSize, timeout);
+      if (chunk.byteLength === 0) {
+        throw new UsbtmcProtocolError('Unexpected empty Bulk-IN packet');
+      }
+      const size = Math.min(chunk.byteLength, transferSize - received);
+      data.set(new Uint8Array(chunk.buffer, chunk.byteOffset, size), received);
+      received += size;
+    }
+
+    return { data: data, eom: eom };
+  }
+
+  /** Reads exactly `length` bytes, possibly across several messages. */
+  async #readExactly(length, timeout) {
+    const data = new Uint8Array(length);
+    let received = 0;
+    let eom = false;
+    while (received < length) {
+      const message = await this.#readMessage(length - received, timeout);
+      if (message.data.length === 0) {
+        throw new UsbtmcProtocolError('Empty DEV_DEP_MSG_IN while reading ' + length + ' bytes');
+      }
+      data.set(message.data, received);
+      received += message.data.length;
+      eom = message.eom;
+      if (eom && received < length) {
+        throw new UsbtmcProtocolError('Message ended after ' + received + ' of ' + length + ' bytes');
+      }
+    }
+    return { data: data, eom: eom };
+  }
+
+  #concat(chunks, total) {
+    if (chunks.length === 1) {
+      return chunks[0];
+    }
+    const output = new Uint8Array(total);
+    let offset = 0;
+    for (const chunk of chunks) {
+      output.set(chunk, offset);
+      offset += chunk.length;
+    }
+    return output;
+  }
+
+  // -------------------------------------------------------------------------
+  // Bulk transfers
+  // -------------------------------------------------------------------------
+
+  async #transmit(msgId, transferSize, attributes, termChar, payload) {
+    const payloadLength = payload ? payload.length : 0;
+    // The message is padded to a multiple of 4 bytes.
+    const size = (HEADER_SIZE + payloadLength + 3) & ~3;
+    const message = new Uint8Array(size);
+    const view = new DataView(message.buffer);
+    const tag = this.#bulkoutbTag;
+
+    message[0] = msgId;
+    message[1] = tag;
+    message[2] = ~tag & 0xFF;
+    message[3] = 0x00;
+    view.setUint32(4, transferSize, true);
+    message[8] = attributes;
+    message[9] = termChar;
+    if (payload) {
+      message.set(payload, HEADER_SIZE);
+    }
+
+    let result;
+    try {
+      result = await this.#device.transferOut(this.#bulkoutEndpointNum, message);
+    } catch (error) {
+      throw new UsbtmcError('Bulk-OUT transfer failed', { cause: error });
+    }
+    if (result.status != 'ok') {
+      if (result.status == 'stall') {
+        await this.#clearHalt('out', this.#bulkoutEndpointNum);
+      }
+      throw new UsbtmcError('Bulk-OUT transfer failed (' + result.status + ')');
+    }
+
+    this.#lastbulkoutbTag = tag;
     this.#bulkoutbTag++;
     if (this.#bulkoutbTag >= 256) {
       // The Host must set bTag such that 1<=bTag<=255.
       this.#bulkoutbTag = 1;
     }
-
-    return length;
   }
 
+  /**
+   * One Bulk-IN transfer. If it does not complete within `timeout` ms,
+   * INITIATE_ABORT_BULK_IN is performed and UsbtmcTimeoutError is thrown.
+   */
+  async #bulkIn(length, timeout) {
+    const result = await this.#bulkInRaw(length, timeout);
 
-  async receive() {
-    if (this.#bulkinEndpointNum == -1) {
-      throw new Error('No appropriate endpoint for receive');
-    }
-
-    let result = await this.#device.transferIn(this.#bulkinEndpointNum, this.#bulkinPacketSize);
-
-    if (result.status != 'ok') {
-      throw new Error('receive failed');
-    }
-
-    if (result.data.byteLength < 12) {
-      console.log('Received data is unreliable');
-      return { data: null, finished: true };
-    }
-
-    let response = new Uint8Array(result.data.buffer);
-
-    // 4,5,6,7:TransferSize
-    let dataSize = 0;
-    dataSize = response[7];
-    dataSize = dataSize << 8;
-    dataSize += response[6];
-    dataSize = dataSize << 8;
-    dataSize += response[5];
-    dataSize = dataSize << 8;
-    dataSize += response[4];
-
-    // 8:bmTransferAttributes
-    let finished = false;
-    if (response[8] == 0x01) {
-      finished = true;
-    }
-
-    let extraDataSize = dataSize;
-    const moduloFour = dataSize % 4;
-    if (moduloFour != 0) {
-      extraDataSize = dataSize - moduloFour + 4;
-    }
-
-    //console.log('finished =' + finished);
-    //console.log('dataSize =' + dataSize);
-    //console.log('extraDataSize =' + extraDataSize);
-
-    const buffer = new ArrayBuffer(extraDataSize);
-    const tmp = new Uint8Array(buffer);
-
-    tmp.set(response.slice(12));
-
-    let currentIndex = response.length - 12;
-
-    while (currentIndex < dataSize) {
-      result = await this.#device.transferIn(this.#bulkinEndpointNum, this.#bulkinPacketSize);
-
-      if (result.status != 'ok' || result.data.byteLength <= 0) {
-        break;
+    if (result === TIMED_OUT) {
+      const error = new UsbtmcTimeoutError('Bulk-IN transfer timed out after ' + timeout + ' ms');
+      try {
+        await this.#abortBulkIn();
+      } catch (abortError) {
+        error.cause = abortError;
       }
-
-      response = new Uint8Array(result.data.buffer);
-      tmp.set(response, currentIndex);
-
-      currentIndex += response.length;
+      throw error;
     }
-
-    const dest = new Uint8Array(buffer, 0, dataSize);
-
-    return { data: dest, finished: finished };
-  }
-
-
-  async abortBulkIn(obj = this) {
-    if (obj.#bulkinEndpointNum == -1) {
-      throw new Error('No appropriate endpoint for abortBulkIn');
-    }
-
-    let result = await obj.#device.controlTransferIn({
-      'requestType': 'class',
-      'recipient': 'endpoint',
-      'request': 0x3, // USBTMC_INITIATE_ABORT_BULK_IN
-      'value': obj.#lastbulkoutbTag,
-      'index': (0x80 + obj.#bulkinEndpointNum)
-    }, 2);
 
     if (result.status != 'ok') {
-      throw new Error('USBTMC_INITIATE_ABORT_BULK_IN failed');
+      if (result.status == 'stall') {
+        await this.#clearHalt('in', this.#bulkinEndpointNum);
+      }
+      throw new UsbtmcError('Bulk-IN transfer failed (' + result.status + ')');
     }
+    return result.data;
+  }
 
-    let status = result.data.getUint8(0);
+  /** Bulk-IN without abort handling. Resolves to TIMED_OUT on timeout. */
+  async #bulkInRaw(length, timeout) {
+    return await this.#withTimeout(this.#device.transferIn(this.#bulkinEndpointNum, length), timeout, 'Bulk-IN transfer failed');
+  }
 
-    if (status == 0x01) {
-      // USBTMC_STATUS_SUCCESS
+  async #withTimeout(promise, timeout, failureMessage) {
+    let timer;
+    const timedOut = new Promise((resolve) => {
+      timer = setTimeout(resolve, timeout, TIMED_OUT);
+    });
+    try {
+      const result = await Promise.race([promise, timedOut]);
+      if (result === TIMED_OUT) {
+        // The transfer may still settle later; nobody is waiting for it.
+        promise.catch(() => { });
+      }
+      return result;
+    } catch (error) {
+      throw new UsbtmcError(failureMessage, { cause: error });
+    } finally {
+      clearTimeout(timer);
+    }
+  }
+
+  async #clearHalt(direction, endpointNumber) {
+    try {
+      await this.#device.clearHalt(direction, endpointNumber);
+    } catch (error) {
+      // Report the original transfer failure instead.
+    }
+  }
+
+  /** Reads Bulk-IN until a short packet (or silence) is seen. */
+  async #drainBulkIn() {
+    const startedAt = Date.now();
+    while (Date.now() - startedAt < DRAIN_LIMIT_MS) {
+      let result;
+      try {
+        result = await this.#bulkInRaw(this.#bulkinPacketSize, DRAIN_TIMEOUT_MS);
+      } catch (error) {
+        return;
+      }
+      if (result === TIMED_OUT || result.status != 'ok' || result.data.byteLength < this.#bulkinPacketSize) {
+        return;
+      }
+    }
+  }
+
+  async #abortBulkIn() {
+    const endpointAddress = 0x80 | this.#bulkinEndpointNum;
+
+    let data = await this.#controlIn('INITIATE_ABORT_BULK_IN', 'endpoint', REQ_INITIATE_ABORT_BULK_IN, this.#lastbulkoutbTag, endpointAddress, 2);
+    let status = data.getUint8(0);
+
+    if (status == STATUS_SUCCESS) {
       // The Host should continue reading from the Bulk-IN endpoint until a short packet is received.
-      // The Host, after a short packet is received, must send CHECK_ABORT_BULK_IN_STATUS.
-    } else if (status == 0x80) {
-      // USBTMC_STATUS_FAILED
-      // The Host must not send CHECK_ABORT_BULK_OUT_STATUS.
-      // The Host must retire Bulk-IN IRP’s.
-      await this.close();
-      await this.open(this.#device);
-
-      throw new Error('USBTMC_STATUS_FAILED');
-    } else if (status == 0x81) {
-      // USBTMC_STATUS_TRANSFER_NOT_IN_PROGRESS
+      await this.#drainBulkIn();
+    } else if (status == STATUS_TRANSFER_NOT_IN_PROGRESS) {
       // The Host must not send CHECK_ABORT_BULK_IN_STATUS.
-      // The Host may send INITIATE_ABORT_BULK_IN at a later time.
-      throw new Error('USBTMC_STATUS_TRANSFER_NOT_IN_PROGRESS');
+      throw new UsbtmcProtocolError('INITIATE_ABORT_BULK_IN: transfer not in progress');
+    } else if (status == STATUS_FAILED) {
+      // The Host must not send CHECK_ABORT_BULK_IN_STATUS.
+      throw new UsbtmcProtocolError('INITIATE_ABORT_BULK_IN failed');
     } else {
-      // The Host must not send CHECK_ABORT_BULK_OUT_STATUS.
-      // The Host must retire Bulk-IN IRP’s.
-      throw new Error('USBTMC_INITIATE_ABORT_BULK_IN succeed, but status = ' + '0x' + status.toString(16));
+      throw new UsbtmcProtocolError('INITIATE_ABORT_BULK_IN: unexpected status 0x' + status.toString(16));
     }
 
-    let i = 0;
-    do {
-      i++;
-      result = await obj.#device.controlTransferIn({
-        'requestType': 'class',
-        'recipient': 'endpoint',
-        'request': 0x4, // USBTMC_CHECK_ABORT_BULK_IN_STATUS
-        'value': 0,
-        'index': (0x80 + obj.#bulkinEndpointNum)
-      }, 8);
+    for (let i = 0; i < MAX_POLLS; i++) {
+      data = await this.#controlIn('CHECK_ABORT_BULK_IN_STATUS', 'endpoint', REQ_CHECK_ABORT_BULK_IN_STATUS, 0, endpointAddress, 8, 2);
+      status = data.getUint8(0);
 
-      if (result.status != 'ok') {
-        throw new Error('USBTMC_CHECK_ABORT_BULK_IN_STATUS failed');
-      }
-
-      status = result.data.getUint8(0);
-
-      let nBytesTxd = 0;
-      nBytesTxd = result.data.getUint8(7);
-      nBytesTxd = nBytesTxd << 8;
-      nBytesTxd += result.data.getUint8(6);
-      nBytesTxd = nBytesTxd << 8;
-      nBytesTxd += result.data.getUint8(5);
-      nBytesTxd = nBytesTxd << 8;
-      nBytesTxd += result.data.getUint8(4);
-
-      if (nBytesTxd > obj.#bulkinPacketSize) {
-        nBytesTxd = obj.#bulkinPacketSize;
-      }
-
-      if (status == 0x02) {
-        // USBTMC_STATUS_PENDING
-        // The Host must send CHECK_ABORT_BULK_IN_STATUS at a later time.
-        // If bmAbortBulkIn.D0 = 1, the Host should read from the Bulk-IN endpoint until a short packet is received.
-        // The Host must ignore NBYTES_TXD.
-        if ((result.data.getUint8(1) & 0x01) == 0x01) {
-          await obj.#device.transferIn(obj.#bulkinEndpointNum, nBytesTxd);
-        } else {
-          continue;
-        }
-      }
-      else {
-        // The Host must not send CHECK_ABORT_BULK_IN_STATUS.
+      if (status != STATUS_PENDING) {
         // The Host must send a USBTMC command message that expects a response before sending another Bulk-IN transaction.
-        break;
+        return;
       }
-    } while (i < 16);
+
+      // USBTMC_STATUS_PENDING: send CHECK_ABORT_BULK_IN_STATUS at a later time.
+      // If bmAbortBulkIn.D0 = 1, the Host should read from the Bulk-IN endpoint until a short packet is received.
+      if ((data.getUint8(1) & 0x01) == 0x01) {
+        await this.#drainBulkIn();
+      } else {
+        await this.delay(POLL_INTERVAL_MS);
+      }
+    }
+
+    throw new UsbtmcProtocolError('CHECK_ABORT_BULK_IN_STATUS stayed pending');
   }
 
+  // -------------------------------------------------------------------------
+  // Control requests
+  // -------------------------------------------------------------------------
+
+  /**
+   * Class-specific IN control request. Returns a DataView with at least
+   * `minLength` bytes. For recipient 'interface' `index` is the interface
+   * number; for 'endpoint' it is the endpoint address.
+   */
+  async #controlIn(name, recipient, request, value, index, length, minLength = 1) {
+    this.#assertOpened();
+
+    let result;
+    try {
+      result = await this.#device.controlTransferIn({
+        'requestType': 'class',
+        'recipient': recipient,
+        'request': request,
+        'value': value,
+        'index': index
+      }, length);
+    } catch (error) {
+      throw new UsbtmcError(name + ' failed', { cause: error });
+    }
+
+    if (result.status != 'ok' || !result.data || result.data.byteLength < minLength) {
+      throw new UsbtmcError(name + ' failed (' + result.status + ')');
+    }
+    return result.data;
+  }
+
+  #expectSuccess(name, status) {
+    if (status != STATUS_SUCCESS) {
+      throw new UsbtmcProtocolError(name + ' failed, status = 0x' + status.toString(16));
+    }
+  }
+
+  #assertOpened() {
+    if (!this.opened) {
+      throw new UsbtmcError('Device is not open');
+    }
+  }
 
   async readStatusByteRegister() {
-    let result = await this.#device.controlTransferIn({
-      'requestType': 'class',
-      'recipient': 'interface',
-      'request': 128, // USBTMC_488_READ_STATUS_BYTE
-      'value': this.#rtbbTag,
-      'index': 0
-    }, 3);
+    const data = await this.#controlIn('READ_STATUS_BYTE', 'interface', REQ_READ_STATUS_BYTE, this.#rtbbTag, this.#interfaceNumber, 3, 3);
 
-    if (result.status != 'ok' || result.data.getUint8(0) != 0x01 || result.data.getUint8(1) != this.#rtbbTag) {
-      throw new Error('USBTMC_488_READ_STATUS_BYTE failed');
+    this.#expectSuccess('READ_STATUS_BYTE', data.getUint8(0));
+    if (data.getUint8(1) != this.#rtbbTag) {
+      throw new UsbtmcProtocolError('READ_STATUS_BYTE: bTag mismatch');
     }
 
     const currentRtbbTag = this.#rtbbTag;
@@ -529,99 +648,70 @@ class Webusbtmc {
       this.#rtbbTag = 2;
 
     if (this.#interruptinEndpointNum == -1) {
-      return result.data.getUint8(2);
+      return data.getUint8(2);
     }
 
-    let usbInTransferResult = await this.#device.transferIn(this.#interruptinEndpointNum, 2);
-
-    if (usbInTransferResult.status != 'ok' || usbInTransferResult.data.byteLength < 2) {
-      throw new Error('readStatusByteRegister unreliable:1');
+    const result = await this.#withTimeout(this.#device.transferIn(this.#interruptinEndpointNum, 2), 1000, 'Interrupt-IN transfer failed');
+    if (result === TIMED_OUT) {
+      throw new UsbtmcTimeoutError('Interrupt-IN transfer timed out');
+    }
+    if (result.status != 'ok' || result.data.byteLength < 2) {
+      throw new UsbtmcProtocolError('Interrupt-IN response is too short');
     }
 
-    let number = usbInTransferResult.data.getUint8(0);
-    let rtbbTag = number & 0x007F;
+    const number = result.data.getUint8(0);
+    const rtbbTag = number & 0x007F;
 
     if ((number & 0x80) != 0x80 ||      // Must be 1.
-      rtbbTag != currentRtbbTag) {    // The bTag value must be the same as the bTag value in the READ_STATUS_BYTE request.
-      throw new Error('readStatusByteRegister unreliable:2');
+      rtbbTag != currentRtbbTag) {      // The bTag value must be the same as the bTag value in the READ_STATUS_BYTE request.
+      throw new UsbtmcProtocolError('Interrupt-IN response does not match READ_STATUS_BYTE');
     }
 
-    return usbInTransferResult.data.getUint8(1);
+    return result.data.getUint8(1);
   }
 
-
   async clear() {
-    if (this.#bulkinEndpointNum == -1 || this.#bulkoutEndpointNum == -1) {
-      throw new Error('No appropriate endpoint for clear');
-    }
+    this.#assertOpened();
 
-    let result = await this.#device.controlTransferIn({
-      'requestType': 'class',
-      'recipient': 'interface',
-      'request': 0x5, // USBTMC_INITIATE_CLEAR
-      'value': 0,
-      'index': 0
-    }, 1);
+    let data = await this.#controlIn('INITIATE_CLEAR', 'interface', REQ_INITIATE_CLEAR, 0, this.#interfaceNumber, 1);
+    this.#expectSuccess('INITIATE_CLEAR', data.getUint8(0));
 
-    if (result.status != 'ok') {
-      throw new Error('USBTMC_INITIATE_CLEAR failed');
-    }
+    let completed = false;
+    for (let i = 0; i < MAX_POLLS && !completed; i++) {
+      data = await this.#controlIn('CHECK_CLEAR_STATUS', 'interface', REQ_CHECK_CLEAR_STATUS, 0, this.#interfaceNumber, 2, 2);
 
-    let status = result.data.getUint8(0);
-
-    if (status == 0x01) {
-      // USBTMC_STATUS_SUCCESS
-    } else {
-      // The Host must not send CHECK_CLEAR_STATUS.
-      console.log('USBTMC_INITIATE_CLEAR failed, status =' + status);
-      return;
-    }
-
-    let i = 0;
-    do {
-      i++;
-      result = await this.#device.controlTransferIn({
-        'requestType': 'class',
-        'recipient': 'interface',
-        'request': 0x6, // USBTMC_CHECK_CLEAR_STATUS
-        'value': 0,
-        'index': 0
-      }, 2);
-
-      if (result.status != 'ok') {
-        throw new Error('USBTMC_CHECK_CLEAR_STATUS failed');
-      }
-
-      status = result.data.getUint8(0);
-
-      if (status == 0x02) {
-        // USBTMC_STATUS_PENDING
+      if (data.getUint8(0) == STATUS_PENDING) {
         // If bmClear.D0 = 1, the Host should read from the Bulk-IN endpoint until a short packet is received.
         // The Host must send CHECK_CLEAR_STATUS at a later time.
-        if ((result.data.getUint8(1) & 0x01) == 0x01) {
-          await this.#device.transferIn(this.#bulkinEndpointNum, this.#bulkinPacketSize);
+        if ((data.getUint8(1) & 0x01) == 0x01) {
+          await this.#drainBulkIn();
         } else {
-          break;
+          await this.delay(POLL_INTERVAL_MS);
         }
+      } else {
+        this.#expectSuccess('CHECK_CLEAR_STATUS', data.getUint8(0));
+        completed = true;
       }
-      else {
-        // The Host must send a CLEAR_FEATURE request to clear the Bulk-OUT Halt.
-        break;
-      }
+    }
 
-    } while (i < 16);
+    if (!completed) {
+      throw new UsbtmcProtocolError('CHECK_CLEAR_STATUS stayed pending');
+    }
 
     await this.delay(100);   // Wait xxx ms before sending CLEAR_FEATURE
 
+    // The Host must send a CLEAR_FEATURE request to clear the Bulk-OUT Halt.
     await this.#device.clearHalt('out', this.#bulkoutEndpointNum);
-
   }
 
   // --start-- IEEE 488.2: Arbitrary Block data
 
   async writeBlockData(command, bytes) {
     if (command == undefined || command == '') {
-      throw new Error('Command is empty');
+      throw new UsbtmcError('Command is empty');
+    }
+    if (bytes.length > 999999999) {
+      throw new UsbtmcError('Block data is too large');
     }
 
     const textEncoder = new TextEncoder();
@@ -632,13 +722,12 @@ class Webusbtmc {
     // # is 1 byte
     const stc = textEncoder.encode('#');
 
-    // numDigits is 1 byte
-    const numDigitsText = parseInt(bytes.length.toString().length).toString();
-    const numDigits = textEncoder.encode(numDigitsText);
-
     // byteCount is numDigits bytes
     const byteCountText = bytes.length.toString();
     const byteCount = textEncoder.encode(byteCountText);
+
+    // numDigits is 1 byte
+    const numDigits = textEncoder.encode(byteCountText.length.toString());
 
     // NL is 1 byte
     const etc = textEncoder.encode('\n');
@@ -659,111 +748,69 @@ class Webusbtmc {
     offset += bytes.length;
     newBytes.set(etc, offset);
 
-    let currentIndex = 0;
-    while (currentIndex < newBytes.length) {
-      const written = await this.send(newBytes.slice(currentIndex));
-      currentIndex += written;
-    }
-
+    await this.writeBytes(newBytes);
   }
 
-
+  /**
+   * Reads "#<n><length><data>" and returns <data>. The indefinite length
+   * format ("#0") is not supported. Throws on failure.
+   */
   async readBlockData(timeout = 5000) {
+    this.#assertOpened();
+
     const textDecoder = new TextDecoder();
-    let timeoutID;
-    let output;
 
-    let retry = 0;
-    do {
-      await this.request(1);
-      timeoutID = setTimeout(() => { this.abortBulkIn(this).catch((error) => { console.log(error); }) }, timeout);
-      output = await this.receive();
-      clearTimeout(timeoutID);
-
-      if (!output.data) {
-        console.log('readBlockData failed');
-        return null;
+    // Skip anything in front of '#'.
+    let found = false;
+    for (let retry = 0; retry < MAX_POLLS && !found; retry++) {
+      const message = await this.#readMessage(1, timeout);
+      if (message.data.length === 0) {
+        throw new UsbtmcProtocolError('No block header in the response');
       }
-
-      const stc = textDecoder.decode(output.data);
-      if (stc == '#') {
-        break;
-      }
-      retry++;
-
+      found = message.data[0] === 0x23;   // '#'
     }
-    while (retry < 16)
-
-    if (retry >= 16) {
-      await this.abortBulkIn();
-      console.log('Unmatch the header code in readBlockData');
-      return null;
+    if (!found) {
+      throw new UsbtmcProtocolError('Block header "#" not found');
     }
 
-    await this.request(1);
-    timeoutID = setTimeout(() => { this.abortBulkIn(this).catch((error) => { console.log(error); }) }, timeout);
-    output = await this.receive();
-    clearTimeout(timeoutID);
-
-    if (!output.data) {
-      console.log('readBlockData failed');
-      return null;
-    }
-
-    const digitLength = parseInt(textDecoder.decode(output.data));
+    const digitLength = parseInt(textDecoder.decode((await this.#readExactly(1, timeout)).data));
     if (!Number.isInteger(digitLength) || digitLength < 1) {
-      console.log('Invalid digit length in readBlockData');
-      return null;
+      throw new UsbtmcProtocolError('Invalid or unsupported block header (digit length)');
     }
 
-    await this.request(digitLength);
-    timeoutID = setTimeout(() => { this.abortBulkIn(this).catch((error) => { console.log(error); }) }, timeout);
-    output = await this.receive();
-    clearTimeout(timeoutID);
-
-    if (!output.data) {
-      console.log('readBlockData failed');
-      return null;
-    }
-
-    const totalBytes = parseInt(textDecoder.decode(output.data));
+    const totalBytes = parseInt(textDecoder.decode((await this.#readExactly(digitLength, timeout)).data));
     if (!Number.isInteger(totalBytes) || totalBytes < 0) {
-      console.log('Invalid byte count in readBlockData');
-      return null;
+      throw new UsbtmcProtocolError('Invalid block header (byte count)');
     }
 
-    const buffer = new ArrayBuffer(totalBytes);
-    const images = new Uint8Array(buffer);
+    let content = { data: new Uint8Array(0), eom: false };
+    if (totalBytes > 0) {
+      content = await this.#readExactly(totalBytes, timeout);
+    }
 
-    timeout = timeout / 10;
-    let currentIndex = 0;
-    while (currentIndex < totalBytes) {
-      await this.request(images.length - currentIndex);
-      timeoutID = setTimeout(() => { this.abortBulkIn(this).catch((error) => { console.log(error); }) }, timeout);
-      output = await this.receive();
-      clearTimeout(timeoutID);
-
-      if (!output.data || output.data.length === 0) {
-        break;
+    // Consume the remaining data (e.g. the terminator) up to EOM.
+    if (!content.eom) {
+      try {
+        await this.#readMessage(64, DRAIN_TIMEOUT_MS);
+      } catch (error) {
+        if (!(error instanceof UsbtmcTimeoutError)) {
+          throw error;
+        }
       }
-
-      images.set(output.data, currentIndex);
-      currentIndex += output.data.length;
     }
 
-    // correct remaining data 
-    timeout = 100;
-    await this.request(64);
-    timeoutID = setTimeout(() => { this.abortBulkIn(this).catch((error) => { console.log(error); }) }, timeout);
-    output = await this.receive();
-    clearTimeout(timeoutID);
-
-    return new Uint8Array(buffer, 0, totalBytes);
+    return content.data;
   }
 
   // --end-- IEEE 488.2: Arbitrary Block data
 
+}
 
+// Enables `await using tmc = new Webusbtmc()` where the runtime supports it.
+if (typeof Symbol.asyncDispose === 'symbol') {
+  Webusbtmc.prototype[Symbol.asyncDispose] = function () {
+    return this.close();
+  };
 }
 
 export default Webusbtmc;
