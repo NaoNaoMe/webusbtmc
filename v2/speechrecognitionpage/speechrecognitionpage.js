@@ -11,6 +11,7 @@ let recognition = new SpeechRecognition();
 let isRecognizing = false;
 let isStopRecognizing = false;
 let worker = new webusbtmc();
+let writeQueue = Promise.resolve();
 let lastText;
 let count = 0;
 
@@ -34,8 +35,13 @@ const inputCommand3 = document.getElementById('input-command3');
 
 connectButton.onclick = () => {
   if (worker.opened) {
-    worker.close();
-    connectButton.innerHTML = plugIcon + ' Connect';
+    worker.close()
+      .catch((error) => {
+        alert(error);
+      })
+      .finally(() => {
+        connectButton.innerHTML = plugIcon + ' Connect';
+      });
   } else {
     const filters = [
       { 'classCode': 0xFE, 'subclassCode': 0x03, 'protocolCode': 0x01 },
@@ -202,7 +208,12 @@ function validateCommand(text) {
   count++;
 
   if (worker.opened) {
-    worker.write(command);
+    // Recognition results can arrive faster than a write completes; send them one at a time.
+    writeQueue = writeQueue
+      .then(() => worker.write(command))
+      .catch((error) => {
+        alert(error);
+      });
   }
 
 }
