@@ -27,10 +27,6 @@ This repository contains practical examples using WebUSBTMC.
 [WebUSBTMC Test Panel](basiciopage) is inspired by the "NI-VISA Interactive Control App".  
 It allows you to quickly check connectivity with your instruments.
 
-### WebUSBTMC with Blockly
-[WebUSBTMC with Blockly](blocklypage) provides the simplest and easiest way to control your instruments.  
-You can write automation programs with [Blockly](https://developers.google.com/blockly) and run them in a browser sandbox using the [JS-Interpreter](https://neil.fraser.name/software/JS-Interpreter/docs.html).
-
 ### Take a Screenshot
 [Take a Screenshot](screenshotpage) is the easiest way to capture screenshots from your instruments.  
 You don't need additional flash drives. You can view the screenshots immediately and save them.
