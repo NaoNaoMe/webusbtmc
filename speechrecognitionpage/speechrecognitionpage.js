@@ -1,6 +1,6 @@
 'use strict';
 
-import webusbtmc from '../webusbtmc/webusbtmc.js';
+import webusbtmc from '../webusbtmc/v1/webusbtmc.js';
 
 var SpeechRecognition = SpeechRecognition || webkitSpeechRecognition
 var SpeechGrammarList = SpeechGrammarList || webkitSpeechGrammarList

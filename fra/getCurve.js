@@ -1,5 +1,5 @@
 'use strict';
-import Webusbtmc from '../webusbtmc/webusbtmc.js';
+import Webusbtmc from '../webusbtmc/v1/webusbtmc.js';
 
 class GetCurve {
   #tmc;
