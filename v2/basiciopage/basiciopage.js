@@ -178,8 +178,13 @@ function display(dir, result, name) {
 
 connectButton.onclick = () => {
   if (worker.opened) {
-    worker.close();
-    connectButton.innerHTML = plugIcon + ' Connect';
+    worker.close()
+      .catch((error) => {
+        alert(error);
+      })
+      .finally(() => {
+        connectButton.innerHTML = plugIcon + ' Connect';
+      });
   } else {
     const filters = [
       { 'classCode': 0xFE, 'subclassCode': 0x03, 'protocolCode': 0x01 },
@@ -300,8 +305,8 @@ readButton.onclick = () => {
 
   if (readTransferType === TransferType.Binary) {
     worker.readBlockData().then((result) => {
-      if (!result || result.length == 0) {
-        print('Failed to receive the response');
+      if (result.length == 0) {
+        print('Received an empty block');
       }
       else {
         display(readOutputTo, result, deviceName);
@@ -313,16 +318,13 @@ readButton.onclick = () => {
     });
   }
   else {
-    let length = 65535;
-    if (readLength.value != '') {
-      length = readLength.value;
-      if (length < 0) {
-        length = 65535;
-      }
+    let length = parseInt(readLength.value);
+    if (!(length > 0)) {
+      length = 65535;
     }
     worker.readBytes(length).then((result) => {
-      if (!result || result.length == 0) {
-        print('Failed to receive the response');
+      if (result.length == 0) {
+        print('Received an empty response');
       }
       else {
         display(readOutputTo, result, deviceName);

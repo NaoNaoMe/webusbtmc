@@ -634,9 +634,14 @@ function handleTogglePlotClick() {
 
 function handleConnectButtonClick() {
     if (worker.opened) {
-        worker.close();
-        connectButton.innerHTML = defaultconnectButtonHTML;
-        fetchButton.disabled = true;
+        worker.close()
+            .catch((error) => {
+                alert(error);
+            })
+            .finally(() => {
+                connectButton.innerHTML = defaultconnectButtonHTML;
+                fetchButton.disabled = true;
+            });
     } else {
         const filters = [
             { 'classCode': 0xFE, 'subclassCode': 0x03, 'protocolCode': 0x01 },
@@ -985,7 +990,7 @@ function fetchData() {
 
     }).catch((error) => {
         console.error('Error during fetching waveform:', error);
-        alert('An error occurred while fetching waveform.');
+        alert('An error occurred while fetching waveform: ' + error);
         isFetchDataInterval = false;
         fetchButton.innerHTML = defaultFetchButtonHTML;
         autoFetchCheckbox.checked = false;

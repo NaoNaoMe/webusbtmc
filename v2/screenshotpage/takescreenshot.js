@@ -32,7 +32,7 @@ class Takescreenshot {
   }
 
   set delay(text) {
-    this.#delay = text;
+    this.#delay = Number(text) || 0;
   }
 
   get isBinaryBlock() {
@@ -49,6 +49,16 @@ class Takescreenshot {
 
   async open(device) {
     await this.#tmc.open(device);
+    try {
+      await this.#configure(device);
+    } catch (error) {
+      await this.#tmc.close().catch(() => { });
+      this.#device = null;
+      throw error;
+    }
+  }
+
+  async #configure(device) {
     this.#device = device;
 
     // vendorId
@@ -150,8 +160,12 @@ class Takescreenshot {
 
       image = await this.#tmc.readBytes(1024*1024);
 
-      // Even after the trasnfer is complete, if "0x0A" remains in the receive buffer. 
-      await this.#tmc.readBytes(1024*1024);
+      // Even after the trasnfer is complete, "0x0A" may remain in the device's output buffer.
+      // Read it only if the device reports a message available (MAV).
+      status = await this.#tmc.readStatusByteRegister();
+      if ((status & 0x10) !== 0) {
+        await this.#tmc.readBytes(1024*1024);
+      }
 
     }
     else {
