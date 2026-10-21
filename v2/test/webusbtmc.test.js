@@ -38,6 +38,8 @@ class FakeDevice {
     this.halts = [];
     this.inQueue = [];
     this.interruptQueue = [];
+    this.waiters = [];       // IN transfers waiting for a packet
+    this.transferInCalls = 0;
     this.onRequest = null;   // (tag, size) => Uint8Array[] (packets)
     this.onControl = null;   // (setup, length) => number[] | undefined
   }
@@ -78,19 +80,33 @@ class FakeDevice {
     if (message.msgId === 0x02) {
       this.requestSizes.push(message.transferSize);
       if (this.onRequest) {
-        this.inQueue.push(...this.onRequest(message.tag, message.transferSize));
+        for (const packet of this.onRequest(message.tag, message.transferSize)) {
+          this.deliver(BULK_IN, packet);
+        }
       }
     }
     return { status: 'ok', bytesWritten: data.byteLength };
   }
 
-  async transferIn(endpointNumber, length) {
-    const queue = endpointNumber === INTERRUPT_IN ? this.interruptQueue : this.inQueue;
-    if (queue.length === 0) {
-      return new Promise(() => { });   // never completes -> timeout
+  /** Like a real host stack: a packet goes to the oldest transfer that is still waiting. */
+  deliver(endpointNumber, packet) {
+    const index = this.waiters.findIndex((w) => w.endpointNumber === endpointNumber);
+    if (index >= 0) {
+      const [waiter] = this.waiters.splice(index, 1);
+      waiter.resolve(inResult(packet));
+    } else {
+      (endpointNumber === INTERRUPT_IN ? this.interruptQueue : this.inQueue).push(packet);
     }
-    const packet = queue.shift();
-    return { status: 'ok', data: new DataView(packet.buffer, packet.byteOffset, packet.byteLength) };
+  }
+
+  async transferIn(endpointNumber, length) {
+    this.transferInCalls++;
+    const queue = endpointNumber === INTERRUPT_IN ? this.interruptQueue : this.inQueue;
+    if (queue.length > 0) {
+      return inResult(queue.shift());
+    }
+    // Nothing to deliver yet. A transfer cannot be cancelled, so it stays queued.
+    return new Promise((resolve) => { this.waiters.push({ endpointNumber, resolve }); });
   }
 
   /** Serves `bytes` like an instrument: each request returns up to the requested size. */
@@ -102,6 +118,10 @@ class FakeDevice {
       return packets(inMessage(tag, chunk, position >= bytes.length), this.packetSize);
     };
   }
+}
+
+function inResult(packet) {
+  return { status: 'ok', data: new DataView(packet.buffer, packet.byteOffset, packet.byteLength) };
 }
 
 function inMessage(tag, data, eom = true, { msgId = 0x02, transferSize = data.length } = {}) {
@@ -319,6 +339,20 @@ test('timeout: abort failure is attached as the cause', async () => {
     assert.ok(error.cause instanceof UsbtmcProtocolError);
     return true;
   });
+});
+
+test('timeout: the timed-out transfer is reused, so the next response is not lost', async () => {
+  // Found on a real instrument: the transfer left behind by a timeout took the next response.
+  const { tmc, device } = await openTmc();
+  await assert.rejects(tmc.read(1024, 20), UsbtmcTimeoutError);
+
+  device.onRequest = (tag) => packets(inMessage(tag, text('KEYSIGHT\n')), 64);
+  assert.equal(await tmc.query('*IDN?'), 'KEYSIGHT');
+  assert.equal(device.transferInCalls, 1);
+  assert.equal(device.waiters.length, 0);
+
+  assert.equal(await tmc.query('*IDN?'), 'KEYSIGHT');   // and the driver keeps working
+  assert.equal(device.transferInCalls, 2);
 });
 
 test('timeout: abort keeps polling while PENDING', async () => {

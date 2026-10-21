@@ -87,6 +87,9 @@ class Webusbtmc {
   #terminatorWrite;
   #terminatorRead;
 
+  // IN transfers whose result has not been handed to a reader yet, by endpoint number.
+  #pendingIn;
+
   constructor() {
     this.#terminatorWrite = '\n';
     this.#terminatorRead = '\n';
@@ -114,6 +117,8 @@ class Webusbtmc {
     this.#bulkoutPacketSize = 64;
     this.#interruptinEndpointNum = -1;
     this.#interruptinPacketSize = 64;
+
+    this.#pendingIn = new Map();
   }
 
   get bcdUSBTMC() {
@@ -505,7 +510,35 @@ class Webusbtmc {
 
   /** Bulk-IN without abort handling. Resolves to TIMED_OUT on timeout. */
   async #bulkInRaw(length, timeout) {
-    return await this.#withTimeout(this.#device.transferIn(this.#bulkinEndpointNum, length), timeout, 'Bulk-IN transfer failed');
+    return await this.#receiveIn(this.#bulkinEndpointNum, length, timeout, 'Bulk-IN transfer failed');
+  }
+
+  /**
+   * IN transfer that resolves to TIMED_OUT after `timeout` ms.
+   *
+   * A WebUSB transfer cannot be cancelled. One that timed out stays queued in the host
+   * stack and takes the next packet the device sends, even though nobody waits for it
+   * any more. So it is kept and handed to the next reader (whether or not it has
+   * settled by then) instead of issuing a second transfer.
+   */
+  async #receiveIn(endpointNumber, length, timeout, failureMessage) {
+    let promise = this.#pendingIn.get(endpointNumber);
+    if (!promise) {
+      promise = this.#device.transferIn(endpointNumber, length);
+      this.#pendingIn.set(endpointNumber, promise);
+    }
+
+    let result;
+    try {
+      result = await this.#withTimeout(promise, timeout, failureMessage);
+    } catch (error) {
+      this.#pendingIn.delete(endpointNumber);
+      throw error;
+    }
+    if (result !== TIMED_OUT) {
+      this.#pendingIn.delete(endpointNumber);
+    }
+    return result;
   }
 
   async #withTimeout(promise, timeout, failureMessage) {
@@ -651,7 +684,7 @@ class Webusbtmc {
       return data.getUint8(2);
     }
 
-    const result = await this.#withTimeout(this.#device.transferIn(this.#interruptinEndpointNum, 2), 1000, 'Interrupt-IN transfer failed');
+    const result = await this.#receiveIn(this.#interruptinEndpointNum, 2, 1000, 'Interrupt-IN transfer failed');
     if (result === TIMED_OUT) {
       throw new UsbtmcTimeoutError('Interrupt-IN transfer timed out');
     }
