@@ -6,22 +6,7 @@ USBTMC is a device class specification for remotely controlling test and measure
 It is also used in VISA (Virtual Instrument Software Architecture) to communicate with instruments over USB.
 
 ## A code example
-You can read identifying information from an instrument using the following code:
-~~~javascript
-async function funcAsync() {
-  const tmc = new Webusbtmc();
-  const filters = [
-    { 'classCode': 0xFE, 'subclassCode': 0x03, 'protocolCode': 0x01 },
-  ];
-  const device = await navigator.usb.requestDevice({ 'filters': filters });
-  await tmc.open(device);
-  await tmc.write('*IDN?');
-  await tmc.delay(0.1); // just in case
-  const result = await tmc.read();
-  console.log(result);
-  await tmc.close();
-}
-~~~
+See [v1/README.md](v1/README.md).
 
 ## Practical examples
 This repository contains practical examples using WebUSBTMC.
