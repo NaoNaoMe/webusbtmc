@@ -12,11 +12,11 @@ async function funcAsync() {
   ];
   const device = await navigator.usb.requestDevice({ 'filters': filters });
   await tmc.open(device);
-  await tmc.write('*IDN?');
-  await tmc.delay(100); // wait 100 ms, just in case
-  const result = await tmc.read();
-  console.log(result);
-  await tmc.close();
+  try {
+    console.log(await tmc.query('*IDN?'));
+  } finally {
+    await tmc.close();
+  }
 }
 ~~~
 
