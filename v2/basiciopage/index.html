@@ -2,189 +2,174 @@
 <html lang="en">
 
 <head>
-  <!-- Required meta tags -->
   <meta charset="utf-8">
   <meta name="viewport" content="width=device-width, initial-scale=1">
-  <!-- Bootstrap CSS -->
+  <meta name="color-scheme" content="light dark">
+  <title>WebUSBTMC Basic I/O</title>
+  <script src="../common/theme.js"></script>
   <link rel="stylesheet" href="https://cdn.jsdelivr.net/npm/bootstrap@5.3.8/dist/css/bootstrap.css"
     integrity="sha256-SlAge5VqSrlDZA7pkxGLVUo06WojJhz+WLmqGAenhJs=" crossorigin="anonymous">
   <link rel="stylesheet" href="https://cdn.jsdelivr.net/npm/bootstrap-icons@1.13.2/font/bootstrap-icons.css"
     integrity="sha256-YNpYiT7G8W7avaxPeaEN1zFRAQQHeC6QI2KG2w7nGZI=" crossorigin="anonymous">
-  <!-- Custom styles for this template -->
-  <link rel="stylesheet" href="basiciopage-template.css">
-  <title>WebUSBTMC Test page</title>
+  <link rel="stylesheet" href="../common/common.css">
 </head>
 
 <body>
-  <div class="container">
-    <h4>WebUSBTMC Basic I/O</h4>
-    <button class="btn btn-primary btn-sm btn-block" type="button" id="connect-button">
-      <i class="bi bi-plug"></i> Connect
-    </button>
-    <h6><output id="notification-message">Condition:</output></h6>
-  </div>
+  <div class="app">
+    <header class="appbar">
+      <a class="brand" href="../../">WebUSBTMC<span class="chip">v2</span></a>
+      <h1 class="visually-hidden">Basic I/O</h1>
+      <button class="btn btn-outline-secondary theme-toggle" type="button" data-theme-toggle><i class="bi bi-circle-half"></i></button>
+    </header>
 
-  <div class="pt-1"></div>
+    <nav class="pagenav" aria-label="Samples">
+      <a href="../basiciopage/" aria-current="page">Basic I/O</a>
+      <a href="../screenshotpage/">Screenshot</a>
+      <a href="../fra/">Frequency response</a>
+      <a href="../speechrecognitionpage/">Speech</a>
+      <a href="../unlockusbmodular/">Unlock</a>
+    </nav>
 
-  <div class="container">
-    <h4>Input</h4>
-    <div class="input-group mb-3">
-      <input type="text" class="form-control" placeholder="Select or Enter Command" id="input-text">
-      <div class="input-group-append">
-        <div class="dropdown" id="command-group">
-          <button class="btn btn-secondary dropdown-toggle" type="button" id="common-commands" data-bs-toggle="dropdown"
-            aria-expanded="false">
-            Select
-          </button>
-          <ul class="dropdown-menu" aria-labelledby="common-commands">
-            <li class="dropdown-item">*IDN?</li>
-            <li class="dropdown-item">*CLS</li>
-            <li class="dropdown-item">*RST</li>
-            <li class="dropdown-item">*TST?</li>
-            <li class="dropdown-item">*OPC</li>
-            <li class="dropdown-item">*OPC?</li>
-            <li class="dropdown-item">*WAI</li>
-            <li class="dropdown-item">*ESE</li>
-            <li class="dropdown-item">*ESE?</li>
-            <li class="dropdown-item">*ESR?</li>
-            <li class="dropdown-item">*SRE</li>
-            <li class="dropdown-item">*SRE?</li>
-            <li class="dropdown-item">*STB?</li>
-            <li class="dropdown-item">:DISPlay:DATA?</li>
-            <li class="dropdown-item">:HCOPy:DATA?</li>
-            <li class="dropdown-item">HARDCopy START</li>
+    <section class="card-lite conn" aria-live="polite">
+      <div class="info">
+        <span class="dot" id="conn-dot"></span>
+        <div style="min-width: 0">
+          <div class="name" id="conn-name">Not connected</div>
+          <div class="sub" id="conn-sub">Connect an instrument with a USB cable.</div>
+        </div>
+      </div>
+      <button class="btn btn-primary" type="button" id="connect-button">Connect</button>
+    </section>
+
+    <div id="alerts"></div>
+
+    <main class="grid2">
+      <section class="card-lite panel">
+        <h2>Command</h2>
+        <label class="field-label" for="input-text">SCPI command</label>
+        <div class="input-group mb-3">
+          <input type="text" class="form-control mono" placeholder="Select or enter a command" id="input-text"
+            autocomplete="off" spellcheck="false">
+          <button class="btn btn-outline-secondary dropdown-toggle" type="button" data-bs-toggle="dropdown"
+            aria-expanded="false">Examples</button>
+          <ul class="dropdown-menu dropdown-menu-end" id="command-group">
+            <li><button class="dropdown-item mono" type="button">*IDN?</button></li>
+            <li><button class="dropdown-item mono" type="button">*CLS</button></li>
+            <li><button class="dropdown-item mono" type="button">*RST</button></li>
+            <li><button class="dropdown-item mono" type="button">*TST?</button></li>
+            <li><button class="dropdown-item mono" type="button">*OPC</button></li>
+            <li><button class="dropdown-item mono" type="button">*OPC?</button></li>
+            <li><button class="dropdown-item mono" type="button">*WAI</button></li>
+            <li><button class="dropdown-item mono" type="button">*ESE</button></li>
+            <li><button class="dropdown-item mono" type="button">*ESE?</button></li>
+            <li><button class="dropdown-item mono" type="button">*ESR?</button></li>
+            <li><button class="dropdown-item mono" type="button">*SRE</button></li>
+            <li><button class="dropdown-item mono" type="button">*SRE?</button></li>
+            <li><button class="dropdown-item mono" type="button">*STB?</button></li>
+            <li><button class="dropdown-item mono" type="button">:DISPlay:DATA?</button></li>
+            <li><button class="dropdown-item mono" type="button">:HCOPy:DATA?</button></li>
+            <li><button class="dropdown-item mono" type="button">HARDCopy START</button></li>
           </ul>
         </div>
-      </div>
-    </div>
 
-    <div class="btn-group">
-      <button type="button" class="btn btn-primary" id="wr-button">Write</button>
-      <div class="dropdown btn-group button-names">
-        <button class="btn btn-primary dropdown-toggle" data-toggle="dropdown" type="button" id="wr-which"
-          data-bs-toggle="dropdown" aria-expanded="false">Data</button>
-        <div class="dropdown-menu dropdown-menu-right" style="min-width: 400px;" aria-labelledby="wr-which">
-          <button class="dropdown-item" id="wr-transfer-data">Data</button>
-          <div class="dropdown-divider"></div>
-          <button class="dropdown-item" id="wr-transfer-bin">Binary Data</button>
-          <form class="px-4">
-            <div class="input-group">
-              <div class="input-group mb-3">
-                <label class="input-group-text" for="wr-filebutton">Upload</label>
-                <input type="file" class="form-control" id="wr-filebutton">
-              </div>
-            </div>
-          </form>
+        <div class="row-actions mb-3">
+          <button type="button" class="btn btn-primary" id="wr-button" data-needs-connection disabled>Write</button>
+          <button type="button" class="btn btn-primary" id="rd-button" data-needs-connection disabled>Read</button>
+          <button type="button" class="btn btn-outline-secondary" id="rstatus-button" data-needs-connection disabled>Status byte</button>
+          <button type="button" class="btn btn-outline-secondary" id="clear-button" data-needs-connection disabled>Device clear</button>
         </div>
-      </div>
-    </div>
-  </div>
+        <p class="note">Write sends the command. Read fetches the answer. A command that ends with
+          <span class="mono">?</span> produces an answer.</p>
 
-  <div class="pt-1"></div>
-
-  <div class="container">
-    <div class="btn-group">
-      <button type="button" class="btn btn-primary" id="rd-button">Read</button>
-      <div class="dropdown btn-group button-names">
-        <button class="btn btn-primary dropdown-toggle" data-toggle="dropdown" type="button" id="rd-which"
-          data-bs-toggle="dropdown" aria-expanded="false">Data</button>
-        <div class="dropdown-menu" aria-labelledby="rd-which">
-          <button class="dropdown-item" id="rd-transfer-data">Data</button>
-          <form class="px-4">
-            <div class="form-group">
-              <label for="rd-length">Bytes to read</label>
-              <input type="text" class="form-control" id="rd-length" placeholder="65535">
+        <details>
+          <summary class="field-label">Transfer options</summary>
+          <div class="row g-3 pt-2">
+            <div class="col-12 col-sm-6">
+              <label class="field-label" for="wr-type">Write as</label>
+              <select class="form-select" id="wr-type">
+                <option value="data" selected>Text</option>
+                <option value="binary">Binary data (block)</option>
+              </select>
             </div>
-          </form>
-          <div class="dropdown-divider"></div>
-          <button class="dropdown-item" id="rd-transfer-bin">Binary Data</button>
-        </div>
-      </div>
-      <div class="dropdown btn-group button-names">
-        <button type="button" class="btn btn-primary dropdown-toggle" data-toggle="dropdown" id="rd-as-how"
-          data-bs-toggle="dropdown" aria-expanded="false">as Text</button>
-        <ul class="dropdown-menu" aria-labelledby="rd-as-how">
-          <li class="dropdown-item" id="rd-as-text">as Text</li>
-          <li class="dropdown-item" id="rd-as-image">as Image</li>
-          <li class="dropdown-item" id="rd-as-object">as Object</li>
-        </ul>
-      </div>
-    </div>
-  </div>
-
-  <div class="pt-1"></div>
-
-  <div class="container">
-    <button type="button" class="btn btn-secondary btn-sm" id="rstatus-button">Read Status Byte</button>
-    <button type="button" class="btn btn-secondary btn-sm" id="clear-button">Clear</button>
-  </div>
-
-  <div class="pt-1"></div>
-
-  <div class="container">
-    <h4>Output</h4>
-    <!-- Nav tabs -->
-    <ul class="nav nav-tabs" role="tablist">
-      <li class="nav-item" role="presentation">
-        <button class="nav-link active" id="text-tab" data-bs-toggle="tab" data-bs-target="#text-pane" type="button"
-          role="tab" aria-controls="text-pane" aria-selected="true">Text</button>
-      </li>
-      <li class="nav-item" role="presentation">
-        <button class="nav-link" id="image-tab" data-bs-toggle="tab" data-bs-target="#image-pane" type="button"
-          role="tab" aria-controls="image-pane" aria-selected="false">Image</button>
-      </li>
-      <li class="nav-item" role="presentation">
-        <button class="nav-link" id="object-tab" data-bs-toggle="tab" data-bs-target="#object-pane" type="button"
-          role="tab" aria-controls="object-pane" aria-selected="false">Object</button>
-      </li>
-    </ul>
-
-    <!-- Tab panes -->
-    <div class="tab-content">
-      <div class="tab-pane fade show active" id="text-pane" role="tabpanel" aria-labelledby="text-tab">
-        <div class="form-group">
-          <div class="d-grid gap-2">
-            <button class="btn btn-light btn-sm btn-block" type="button" id="clear-text-button">Clear Text</button>
+            <div class="col-12 col-sm-6">
+              <label class="field-label" for="wr-filebutton">File to send</label>
+              <input type="file" class="form-control" id="wr-filebutton">
+            </div>
+            <div class="col-12 col-sm-6">
+              <label class="field-label" for="rd-type">Read as</label>
+              <select class="form-select" id="rd-type">
+                <option value="data" selected>Text / raw bytes</option>
+                <option value="binary">Binary data (block)</option>
+              </select>
+            </div>
+            <div class="col-12 col-sm-6">
+              <label class="field-label" for="rd-length">Bytes to read</label>
+              <input type="text" inputmode="numeric" class="form-control mono" id="rd-length" placeholder="65535">
+            </div>
+            <div class="col-12">
+              <label class="field-label" for="rd-as">Show the result as</label>
+              <select class="form-select" id="rd-as">
+                <option value="text" selected>Text</option>
+                <option value="image">Image</option>
+                <option value="object">Downloadable file</option>
+              </select>
+            </div>
           </div>
-          <textarea class="form-control" id="output-textarea" rows="16"></textarea>
+        </details>
+      </section>
+
+      <section class="card-lite panel">
+        <div class="d-flex align-items-center justify-content-between mb-2">
+          <h2 class="mb-0">Output</h2>
+          <button class="btn btn-sm btn-outline-secondary" type="button" id="clear-text-button" style="min-height: 32px">Clear log</button>
         </div>
-      </div>
-      <div class="tab-pane fade" id="image-pane" role="tabpanel" aria-labelledby="image-tab">
-        Received image data
-        <div class='d-none' id="image-area">
-          <a href="#" id="image-link"><img class="img-fluid" id="image-field" alt="Received image"></a>
+        <ul class="nav nav-tabs mb-3" role="tablist">
+          <li class="nav-item" role="presentation">
+            <button class="nav-link active" id="text-tab" data-bs-toggle="tab" data-bs-target="#text-pane" type="button"
+              role="tab" aria-controls="text-pane" aria-selected="true">Text</button>
+          </li>
+          <li class="nav-item" role="presentation">
+            <button class="nav-link" id="image-tab" data-bs-toggle="tab" data-bs-target="#image-pane" type="button"
+              role="tab" aria-controls="image-pane" aria-selected="false">Image</button>
+          </li>
+          <li class="nav-item" role="presentation">
+            <button class="nav-link" id="object-tab" data-bs-toggle="tab" data-bs-target="#object-pane" type="button"
+              role="tab" aria-controls="object-pane" aria-selected="false">File</button>
+          </li>
+        </ul>
+        <div class="tab-content">
+          <div class="tab-pane fade show active" id="text-pane" role="tabpanel" aria-labelledby="text-tab" tabindex="0">
+            <div class="log" id="output-log" role="log" aria-live="polite"><div class="empty">Nothing yet. Connect, then write a command.</div></div>
+          </div>
+          <div class="tab-pane fade" id="image-pane" role="tabpanel" aria-labelledby="image-tab" tabindex="0">
+            <p class="note" id="image-empty">No image received yet. Choose “Image” under Transfer options, then Read.</p>
+            <div class="d-none" id="image-area">
+              <a href="#" id="image-link"><img class="img-fluid" id="image-field" alt="Received image"></a>
+            </div>
+          </div>
+          <div class="tab-pane fade" id="object-pane" role="tabpanel" aria-labelledby="object-tab" tabindex="0">
+            <p class="note" id="object-empty">No file received yet. Choose “Downloadable file” under Transfer options, then Read.</p>
+            <div class="d-none" id="object-area">
+              <output id="rcvd-length"></output>
+              <a href="#" id="file-link" class="ms-2">Download</a>
+            </div>
+          </div>
         </div>
-      </div>
-      <div class="tab-pane fade" id="object-pane" role="tabpanel" aria-labelledby="object-tab">
-        Received object data
-        <div class='d-none' id="object-area">
-          <output id="rcvd-length"> xx byte</output><a href="#" id="file-link">Download</a>
-        </div>
-      </div>
-    </div>
+      </section>
+    </main>
+
+    <footer class="foot">
+      <span>Windows needs the WinUSB driver: <a href="https://github.com/ananswer/webusbtmc/#windows">setup guide</a></span>
+      <a href="../../v1/basiciopage/">Previous version (v1)</a>
+    </footer>
   </div>
 
-  <!-- Optional JavaScript -->
   <script src="https://cdn.jsdelivr.net/npm/@popperjs/core@2.11.8/dist/umd/popper.min.js"
     integrity="sha256-whL0tQWoY1Ku1iskqPFvmZ+CHsvmRWx/PIoEvIeWh4I=" crossorigin="anonymous"></script>
   <script src="https://cdn.jsdelivr.net/npm/bootstrap@5.3.8/dist/js/bootstrap.min.js"
     integrity="sha256-ew8UiV1pJH/YjpOEBInP1HxVvT/SfrCmwSoUzF9JIgc=" crossorigin="anonymous"></script>
 
   <script type="module" src="basiciopage.js"></script>
-
-  <script type="text/javascript">
-    const beforeUnload = (event) => {
-      event.preventDefault();
-      var c = confirm();
-      if (c) {
-        return true;
-      }
-      else
-        return false;
-    };
-    window.onbeforeunload = beforeUnload;
-  </script>
-
 </body>
 
 </html>
