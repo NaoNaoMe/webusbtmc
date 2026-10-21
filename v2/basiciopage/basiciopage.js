@@ -1,7 +1,7 @@
 'use strict';
 
 import Webusbtmc from '../webusbtmc/webusbtmc.js';
-import { setConnectionState, showError, clearMessages, appendLog } from '../common/ui.js';
+import { setupConnectButton, runWithSpinner, confirmLeaveWhileConnected, showError, appendLog } from '../common/ui.js';
 
 const worker = new Webusbtmc();
 
@@ -16,7 +16,6 @@ const OutputTo = {
 
 const $ = (id) => document.getElementById(id);
 
-const connectButton = $('connect-button');
 const log = $('output-log');
 const inputtext = $('input-text');
 const writeButton = $('wr-button');
@@ -25,8 +24,6 @@ const rstatusButton = $('rstatus-button');
 const clearDeviceButton = $('clear-button');
 const writeFileButton = $('wr-filebutton');
 const clearTextButton = $('clear-text-button');
-
-const spinnerWidget = '<span class="spinner-border spinner-border-sm me-2" role="status" aria-hidden="true"></span>';
 
 function decimalToHex(d, padding = 2) {
   return Number(d).toString(16).padStart(padding, '0');
@@ -141,63 +138,16 @@ function display(dir, result, name) {
   }
 }
 
-/** Shows a spinner on the button while the operation runs. Errors are shown in the page. */
-async function run(button, operation) {
-  const html = button.innerHTML;
-  clearMessages();
-  button.disabled = true;
-  button.innerHTML = spinnerWidget + html;
-  try {
-    await operation();
-  } catch (error) {
-    console.error(error);
-    showError(error);
-  } finally {
-    button.innerHTML = html;
-    button.disabled = !worker.opened;
-  }
-}
+const run = (button, operation) => runWithSpinner(button, operation, () => worker.opened);
 
-connectButton.onclick = async () => {
-  if (worker.opened) {
-    try {
-      await worker.close();
-    } catch (error) {
-      showError(error);
-    }
-    clearMessages();
-    setConnectionState('off');
-    return;
-  }
-
-  let device;
-  try {
-    const filters = [
-      { 'classCode': 0xFE, 'subclassCode': 0x03, 'protocolCode': 0x01 },
-    ];
-    device = await navigator.usb.requestDevice({ 'filters': filters });
-  } catch (error) {
-    if (error.name !== 'NotFoundError') {   // NotFoundError: the dialog was closed without choosing
-      showError(error);
-    }
-    return;
-  }
-
-  clearMessages();
-  setConnectionState('busy');
-  try {
+setupConnectButton({
+  isOpen: () => worker.opened,
+  open: async (device) => {
     await worker.open(device);
     deviceName = worker.device.productName.replace(/\s/g, '');
-    setConnectionState('on', {
-      name: worker.device.productName,
-      detail: 'VID ' + decimalToHex(device.vendorId, 4).toUpperCase() + ' · PID ' + decimalToHex(device.productId, 4).toUpperCase(),
-    });
-  } catch (error) {
-    console.error(error);
-    setConnectionState('err', { error: 'The instrument was found but could not be opened.' });
-    showError(error);
-  }
-};
+  },
+  close: () => worker.close(),
+});
 
 writeButton.onclick = () => run(writeButton, async () => {
   const text = inputtext.value;
@@ -278,11 +228,4 @@ for (const item of $('command-group').getElementsByClassName('dropdown-item')) {
   });
 }
 
-// Leaving the page closes the connection, so ask first while an instrument is connected.
-window.addEventListener('beforeunload', (event) => {
-  if (worker.opened) {
-    event.preventDefault();
-  }
-});
-
-setConnectionState('off');
+confirmLeaveWhileConnected(() => worker.opened);

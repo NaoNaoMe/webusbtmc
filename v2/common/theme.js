@@ -25,6 +25,7 @@
     } else {
       root.setAttribute('data-theme', choice);
     }
+    window.dispatchEvent(new Event('tmc-themechange'));   // lets charts etc. redraw in the new colours
   }
 
   var choice = load();

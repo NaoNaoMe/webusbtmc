@@ -165,12 +165,14 @@ h1, h2, h3 { text-wrap: balance; }
 /* Messages shown in the page instead of alert() */
 .msg { display: flex; gap: 10px; padding: 11px 14px; border-radius: var(--radius); border: 1px solid; margin-block: 0 12px; font-size: 14px; }
 .msg.err { background: var(--err-soft); border-color: color-mix(in srgb, var(--err) 45%, transparent); }
+.msg.ok { background: var(--accent-soft); border-color: color-mix(in srgb, var(--ok) 45%, transparent); }
 .msg.warn { background: var(--warn-soft); border-color: color-mix(in srgb, var(--warn) 45%, transparent); }
 .msg .text { min-width: 0; overflow-wrap: anywhere; }
 .msg b { display: block; }
 .msg .bi { flex: none; margin-top: 1px; }
 .msg.err .bi { color: var(--err); }
 .msg.warn .bi { color: var(--warn); }
+.msg.ok .bi { color: var(--ok); }
 .msg .x { margin-left: auto; background: none; border: 0; color: var(--muted); font-size: 18px; line-height: 1; padding: 0 4px; }
 
 /* Log of what was sent and received */

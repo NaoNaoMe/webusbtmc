@@ -40,14 +40,14 @@ export function setConnectionState(state, { name = '', detail = '', error = '' }
   });
 }
 
-/** Shows a message in the page. kind: 'err' | 'warn' */
+/** Shows a message in the page. kind: 'err' | 'warn' | 'ok' */
 export function showMessage(kind, title, body = '') {
   const box = document.createElement('div');
   box.className = 'msg ' + kind;
   box.setAttribute('role', 'alert');
 
   const icon = document.createElement('i');
-  icon.className = 'bi ' + (kind === 'err' ? 'bi-exclamation-octagon-fill' : 'bi-exclamation-triangle-fill');
+  icon.className = 'bi ' + { err: 'bi-exclamation-octagon-fill', warn: 'bi-exclamation-triangle-fill', ok: 'bi-check-circle-fill' }[kind];
   icon.setAttribute('aria-hidden', 'true');
 
   const text = document.createElement('div');
@@ -114,4 +114,93 @@ export function appendLog(log, kind, text) {
 
   log.append(line);
   log.scrollTop = log.scrollHeight;
+}
+
+const usbtmcFilters = [
+  { 'classCode': 0xFE, 'subclassCode': 0x03, 'protocolCode': 0x01 },
+];
+
+function hex4(value) {
+  return Number(value).toString(16).toUpperCase().padStart(4, '0');
+}
+
+/**
+ * Connects the Connect button of the page.
+ *   isOpen():      true while an instrument is connected
+ *   open(device):  connects to the chosen USB device (async)
+ *   close():       disconnects (async)
+ *   onChange(state): optional, called with 'off' | 'busy' | 'on' | 'err'
+ */
+export function setupConnectButton({ isOpen, open, close, onChange = () => { } }) {
+  const button = $('connect-button');
+
+  const change = (state, details) => {
+    setConnectionState(state, details);
+    onChange(state);
+  };
+
+  button.addEventListener('click', async () => {
+    if (isOpen()) {
+      try {
+        await close();
+      } catch (error) {
+        showError(error);
+      }
+      clearMessages();
+      change('off');
+      return;
+    }
+
+    let device;
+    try {
+      device = await navigator.usb.requestDevice({ 'filters': usbtmcFilters });
+    } catch (error) {
+      if (error.name !== 'NotFoundError') {   // NotFoundError: the dialog was closed without choosing
+        showError(error);
+      }
+      return;
+    }
+
+    clearMessages();
+    change('busy');
+    try {
+      await open(device);
+      change('on', {
+        name: device.productName || 'USB instrument',
+        detail: 'VID ' + hex4(device.vendorId) + ' · PID ' + hex4(device.productId),
+      });
+    } catch (error) {
+      console.error(error);
+      change('err', { error: 'The instrument was found but could not be opened.' });
+      showError(error);
+    }
+  });
+
+  change('off');
+}
+
+/** Shows a spinner on the button while `operation` runs. Errors are shown in the page. */
+export async function runWithSpinner(button, operation, isOpen) {
+  const html = button.innerHTML;
+  clearMessages();
+  button.disabled = true;
+  button.innerHTML = spinner + html;
+  try {
+    await operation();
+  } catch (error) {
+    console.error(error);
+    showError(error);
+  } finally {
+    button.innerHTML = html;
+    button.disabled = !isOpen();
+  }
+}
+
+/** Asks before the page is left while an instrument is connected (leaving closes the connection). */
+export function confirmLeaveWhileConnected(isOpen) {
+  window.addEventListener('beforeunload', (event) => {
+    if (isOpen()) {
+      event.preventDefault();
+    }
+  });
 }

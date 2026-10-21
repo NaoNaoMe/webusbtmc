@@ -1,52 +1,58 @@
-<!doctype html>
-
+<!DOCTYPE html>
 <html lang="en">
+
 <head>
   <meta charset="utf-8">
-
-  <title>Keysight USB Modular instruments unlocker</title>
-
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <meta name="color-scheme" content="light dark">
+  <title>WebUSBTMC Unlock Modular</title>
+  <script src="../common/theme.js"></script>
+  <link rel="stylesheet" href="https://cdn.jsdelivr.net/npm/bootstrap@5.3.8/dist/css/bootstrap.css"
+    integrity="sha256-SlAge5VqSrlDZA7pkxGLVUo06WojJhz+WLmqGAenhJs=" crossorigin="anonymous">
+  <link rel="stylesheet" href="https://cdn.jsdelivr.net/npm/bootstrap-icons@1.13.2/font/bootstrap-icons.css"
+    integrity="sha256-YNpYiT7G8W7avaxPeaEN1zFRAQQHeC6QI2KG2w7nGZI=" crossorigin="anonymous">
+  <link rel="stylesheet" href="../common/common.css">
 </head>
 
 <body>
-  Keysight(or Agilent) U27xx modular devices stay on 'firmware update' mode at power-on.<br>
-  You can change to USBTMC device when you click the unlock button.
-  <p>
-    <button id="unlock">Unlock</button>
-  </p>
-  <script>
-    document.getElementById('unlock').onclick = function() {
-      let device;
-      const filters = [
-        {'classCode': 0x00, 'subclassCode': 0x00, 'protocolCode': 0x00},
-      ];
-      navigator.usb.requestDevice({'filters': filters}).then((result) => {
-        device = result;
-        return device.open();
+  <div class="app">
+    <header class="appbar">
+      <a class="brand" href="../../">WebUSBTMC<span class="chip">v2</span></a>
+      <h1 class="visually-hidden">Unlock USB modular instruments</h1>
+      <button class="btn btn-outline-secondary theme-toggle" type="button" data-theme-toggle><i class="bi bi-circle-half"></i></button>
+    </header>
 
-      }).then(()=>{
-        if (device.vendorId != 0x0957) {
-          throw new Error("The device is not suitable");
-        }
-        return device.claimInterface(device.configuration.interfaces[0].interfaceNumber);
+    <nav class="pagenav" aria-label="Samples">
+      <a href="../basiciopage/">Basic I/O</a>
+      <a href="../screenshotpage/">Screenshot</a>
+      <a href="../fra/">Frequency response</a>
+      <a href="../speechrecognitionpage/">Speech</a>
+      <a href="../unlockusbmodular/" aria-current="page">Unlock</a>
+    </nav>
 
-      }).then(()=>{
-          const data = new Uint8Array([0x00, 0x00, 0x01, 0x01, 0x00, 0x00, 0x00, 0x00]);
-          return device.controlTransferOut({
-            'requestType': 'vendor',
-            'recipient': 'device',
-            'request': 0x0C,
-            'value': 0,
-            'index': 0x475}, data
-          );
+    <div id="alerts"></div>
 
-      }).then(()=>{
-        alert('Unlock Success');
-      }).catch((error) => {
-        alert(error);
-      });
-    };
+    <main>
+      <section class="card-lite panel">
+        <h2>Unlock a modular instrument</h2>
+        <p>Keysight (or Agilent) U27xx modular instruments stay in “firmware update” mode when they are powered on.
+          This tool switches them to USBTMC mode, so that the other samples can use them.</p>
+        <ol class="mb-3">
+          <li>Connect the instrument with a USB cable.</li>
+          <li>Press <b>Unlock</b> and choose the instrument in the dialog of the browser.</li>
+          <li>The instrument restarts. Then use it from the other samples.</li>
+        </ol>
+        <button class="btn btn-primary" type="button" id="unlock"><i class="bi bi-unlock me-1"></i>Unlock</button>
+      </section>
+    </main>
 
-  </script>
+    <footer class="foot">
+      <span>Windows needs the WinUSB driver: <a href="https://github.com/ananswer/webusbtmc/#windows">setup guide</a></span>
+      <a href="../../v1/unlockusbmodular/">Previous version (v1)</a>
+    </footer>
+  </div>
+
+  <script type="module" src="unlockusbmodular.js"></script>
 </body>
+
 </html>

@@ -2,114 +2,107 @@
 <html lang="en">
 
 <head>
-  <!-- Required meta tags -->
   <meta charset="utf-8">
   <meta name="viewport" content="width=device-width, initial-scale=1">
-  <!-- Bootstrap CSS -->
+  <meta name="color-scheme" content="light dark">
+  <title>WebUSBTMC Screenshot</title>
+  <script src="../common/theme.js"></script>
   <link rel="stylesheet" href="https://cdn.jsdelivr.net/npm/bootstrap@5.3.8/dist/css/bootstrap.css"
     integrity="sha256-SlAge5VqSrlDZA7pkxGLVUo06WojJhz+WLmqGAenhJs=" crossorigin="anonymous">
   <link rel="stylesheet" href="https://cdn.jsdelivr.net/npm/bootstrap-icons@1.13.2/font/bootstrap-icons.css"
     integrity="sha256-YNpYiT7G8W7avaxPeaEN1zFRAQQHeC6QI2KG2w7nGZI=" crossorigin="anonymous">
-  <!-- Custom styles for this template -->
-  <link rel="stylesheet" href="screenshotpage-template.css">
-  <title>Taka a screenshot from an oscilloscope</title>
+  <link rel="stylesheet" href="../common/common.css">
+  <link rel="stylesheet" href="screenshotpage.css">
 </head>
 
 <body>
-  <div class="container">
-    <div class="d-grid gap-2">
-      <button class="btn btn-secondary btn-sm btn-block" type="button" id="connect-button">
-        <i class="bi bi-plug"></i> Connect
-      </button>
-    </div>
-    <div class="d-none" id="windows-advice-text">
-      For windows users; You need to <a href="https://github.com/ananswer/webusbtmc/#windows">install usb driver</a>
-    </div>
-  </div>
+  <div class="app">
+    <header class="appbar">
+      <a class="brand" href="../../">WebUSBTMC<span class="chip">v2</span></a>
+      <h1 class="visually-hidden">Take a screenshot from an oscilloscope</h1>
+      <button class="btn btn-outline-secondary theme-toggle" type="button" data-theme-toggle><i class="bi bi-circle-half"></i></button>
+    </header>
 
-  <div class="pt-2"></div>
+    <nav class="pagenav" aria-label="Samples">
+      <a href="../basiciopage/">Basic I/O</a>
+      <a href="../screenshotpage/" aria-current="page">Screenshot</a>
+      <a href="../fra/">Frequency response</a>
+      <a href="../speechrecognitionpage/">Speech</a>
+      <a href="../unlockusbmodular/">Unlock</a>
+    </nav>
 
-  <div class="container">
-    <div class="d-grid gap-2">
-      <button type="button" class="btn btn-secondary btn-block" id="takeashot-button" disabled>
-        <i class="bi bi-camera"></i> Take a screenshot
-      </button>
-    </div>
-  </div>
-
-  <div class="pt-2"></div>
-
-  <div class="container">
-    <div class="d-none" id="image-area">
-      <img class="img-fluid" id="screenshot-image" alt="Received image">
-    </div>
-  </div>
-
-  <div class="pt-2"></div>
-
-  <div class="container">
-    <div class="d-grid gap-2">
-      <a class="mb-2 btn btn-secondary btn-block" id="download-link" href="#" role="button">
-        <i class="bi bi-file-earmark-image"></i> Download
-      </a>
-    </div>
-  </div>
-
-  <div class="pt-2"></div>
-
-  <div class="container">
-    <div class="d-none" id="help-area">
-      <button class="btn btn-light btn-sm" type="button" data-bs-toggle="collapse" data-bs-target="#troubleshoot-panel"
-        aria-expanded="false" aria-controls="troubleshoot-panel" id="help-button">
-        Trouble with the screenshot?
-      </button>
-      <div class="collapse" id="troubleshoot-panel">
-        <div class="form-group">
-          <label for="command-input">Screenshot command</label>
-          <input class="form-control" id="command-input" aria-describedby="commandHelp" placeholder="Enter command">
-          <small id="commandHelp" class="form-text text-muted">Customize the screenshot command for your measurement instruments.</small>
-        </div>
-        <div class="form-group">
-          <label for="delay-input">Wait Time (milliseconds)</label>
-          <input class="form-control" id="delay-input" aria-describedby="commandHelp" placeholder="milliseconds">
-          <small id="delayHelp" class="form-text text-muted">Enter the required wait time after issuing a command request, in milliseconds.</small>
-        </div>
-        <div class="form-group">
-          <input class="form-check-input" type="checkbox" id="binaryBlock-check" >
-          <label class="form-check-label" for="binaryBlock-check">Binary Transfer Format is applied to the receive process.</label>
-        </div>
-        <div class="form-group">
-          <button type="button" class="btn btn-secondary btn-sm" id="fetchDeviceInfo-button">Fetch Device Info</button>
-          <br>
-          <label for="yourDevice-textarea">About your device</label>
-          <textarea class="form-control" id="yourDevice-textarea" aria-describedby="yourDeviceHelp" rows="3"></textarea>
-          <small id="yourDeviceHelp" class="form-text text-muted">Please provide the following device information when reporting issues or questions.</small>
+    <section class="card-lite conn" aria-live="polite">
+      <div class="info">
+        <span class="dot" id="conn-dot"></span>
+        <div style="min-width: 0">
+          <div class="name" id="conn-name">Not connected</div>
+          <div class="sub" id="conn-sub">Connect an instrument with a USB cable.</div>
         </div>
       </div>
-    </div>
+      <button class="btn btn-primary" type="button" id="connect-button">Connect</button>
+    </section>
+
+    <div id="alerts"></div>
+
+    <main class="grid2">
+      <section class="card-lite panel">
+        <h2>Screen</h2>
+        <div class="screen" id="screen">
+          <p class="note m-0 p-3 text-center" id="screen-empty">No screenshot yet.<br>Press “Take a screenshot”.</p>
+          <img class="d-none" id="screenshot-image" alt="Screenshot of the instrument">
+        </div>
+      </section>
+
+      <section class="card-lite panel">
+        <h2>Capture</h2>
+        <div class="row-actions mb-3">
+          <button type="button" class="btn btn-primary" id="takeashot-button" data-needs-connection disabled>
+            <i class="bi bi-camera me-1"></i>Take a screenshot
+          </button>
+          <a class="btn btn-outline-secondary disabled" id="download-link" href="#" role="button" aria-disabled="true">
+            <i class="bi bi-download me-1"></i>Save image
+          </a>
+        </div>
+        <p class="note">The command is chosen from the vendor of the instrument. If no image appears, open the advanced
+          settings.</p>
+
+        <details id="advanced">
+          <summary class="field-label">Advanced settings</summary>
+          <div class="pt-2">
+            <label class="field-label" for="command-input">Screenshot command</label>
+            <input class="form-control mono mb-1" id="command-input" placeholder="Enter command" spellcheck="false">
+            <p class="note">Customize the screenshot command for your instrument.</p>
+
+            <label class="field-label" for="delay-input">Wait time (milliseconds)</label>
+            <input class="form-control mono mb-1" id="delay-input" placeholder="milliseconds" inputmode="numeric">
+            <p class="note">Wait time after the command is sent, before the image is read.</p>
+
+            <div class="form-check mb-3">
+              <input class="form-check-input" type="checkbox" id="binaryBlock-check">
+              <label class="form-check-label" for="binaryBlock-check">The image comes as a binary block (<span class="mono">#…</span>)</label>
+            </div>
+
+            <button type="button" class="btn btn-outline-secondary btn-sm mb-2" id="fetchDeviceInfo-button" data-needs-connection disabled>Fetch device info</button>
+            <label class="field-label" for="yourDevice-textarea">About your device</label>
+            <textarea class="form-control mono mb-1" id="yourDevice-textarea" rows="3" readonly></textarea>
+            <p class="note mb-0">Please include this when you report a problem.</p>
+          </div>
+        </details>
+      </section>
+    </main>
+
+    <footer class="foot">
+      <span>Windows needs the WinUSB driver: <a href="https://github.com/ananswer/webusbtmc/#windows">setup guide</a></span>
+      <a href="../../v1/screenshotpage/">Previous version (v1)</a>
+    </footer>
   </div>
 
-  <!-- Optional JavaScript -->
   <script src="https://cdn.jsdelivr.net/npm/@popperjs/core@2.11.8/dist/umd/popper.min.js"
     integrity="sha256-whL0tQWoY1Ku1iskqPFvmZ+CHsvmRWx/PIoEvIeWh4I=" crossorigin="anonymous"></script>
   <script src="https://cdn.jsdelivr.net/npm/bootstrap@5.3.8/dist/js/bootstrap.min.js"
     integrity="sha256-ew8UiV1pJH/YjpOEBInP1HxVvT/SfrCmwSoUzF9JIgc=" crossorigin="anonymous"></script>
 
   <script type="module" src="screenshotpage.js"></script>
-
-  <script type="text/javascript">
-    const beforeUnload = (event) => {
-      event.preventDefault();
-      var c = confirm();
-      if (c) {
-        return true;
-      }
-      else
-        return false;
-    };
-    window.onbeforeunload = beforeUnload;
-  </script>
-
 </body>
 
 </html>
