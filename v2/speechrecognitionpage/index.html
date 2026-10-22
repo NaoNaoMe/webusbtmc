@@ -154,10 +154,21 @@
             </select>
           </div>
         </div>
+        <div class="d-flex align-items-center gap-2 mb-3" aria-live="polite">
+          <span class="dot" id="listen-dot"></span><span id="listen-text">Not listening</span>
+        </div>
         <label for="whatyousaid" class="field-label">You spoke</label>
         <input type="text" class="form-control" id="whatyousaid" readonly>
-        <p class="note mt-3 mb-0">When a keyword is heard, its command is sent to the connected instrument.
-          Speech recognition needs a browser that supports it, such as Chrome or Edge.</p>
+        <div class="form-check form-switch mt-3">
+          <input class="form-check-input" type="checkbox" role="switch" id="test-mode">
+          <label class="form-check-label" for="test-mode">Test mode: show the commands, but do not send them</label>
+        </div>
+        <div class="form-check form-switch mt-2">
+          <input class="form-check-input" type="checkbox" role="switch" id="early-mode">
+          <label class="form-check-label" for="early-mode">React before the phrase ends (faster, but it may react to a half-heard phrase)</label>
+        </div>
+        <p class="note mt-3 mb-0">Your voice is processed by the speech service of the browser (Chrome: Google,
+          Edge: Microsoft), not by this page.</p>
       </section>
 
       <section class="card-lite panel">
@@ -174,6 +185,16 @@
           <input type="text" class="form-control" placeholder="Keyword 3" aria-label="Keyword 3" id="input-keyword3">
           <input type="text" class="form-control mono" placeholder="Command 3" aria-label="Command 3" id="input-command3" spellcheck="false">
         </div>
+        <p class="note mt-3 mb-0">The commands are sent as they are. Answers are not read, so use commands that do not
+          produce an answer.</p>
+      </section>
+
+      <section class="card-lite panel" style="grid-column: 1 / -1">
+        <div class="d-flex align-items-center justify-content-between mb-2">
+          <h2 class="mb-0">Log</h2>
+          <button class="btn btn-sm btn-outline-secondary" type="button" id="clear-log-button" style="min-height: 32px">Clear log</button>
+        </div>
+        <div class="log" id="speech-log" role="log" aria-live="polite" style="height: 160px"><div class="empty">Nothing yet. Press Start speech recognition and say a keyword.</div></div>
       </section>
     </main>
 
@@ -187,14 +208,20 @@
     <p>Send commands to an instrument by voice.</p>
     <ol>
       <li><strong>Connect.</strong> Press <b>Connect</b> and choose your instrument in the dialog of the browser.</li>
-      <li><strong>Register.</strong> Enter a keyword and the command to send when the keyword is heard. Up to three pairs.</li>
-      <li><strong>Listen.</strong> Choose the language and press <b>Start speech recognition</b>.</li>
-      <li><strong>Speak.</strong> Say a keyword. Its command is sent to the instrument.</li>
+      <li><strong>Register.</strong> Enter a keyword and the command to send when the keyword is heard. Up to three pairs. They are remembered in this browser.</li>
+      <li><strong>Listen.</strong> Check the language (it starts with the language of your browser) and press <b>Start speech recognition</b>. Allow the microphone when the browser asks.</li>
+      <li><strong>Speak.</strong> Say a keyword. Its command is sent to the instrument, and the log shows what was heard and what was sent.</li>
     </ol>
+    <h6>Try it safely</h6>
+    <p>Turn on <b>Test mode</b> to see which commands would be sent without sending them. Check that <b>Listening</b> is shown: that is when the microphone is open.</p>
     <h6>Notes</h6>
     <ul>
-      <li>Speech recognition needs a browser that supports it, such as Chrome or Edge.</li>
+      <li>Speech recognition needs a browser that supports it, such as Chrome or Edge. The audio is sent to the speech service of the browser (Chrome: Google, Edge: Microsoft). Do not use it for confidential work.</li>
+      <li>By default only a finished phrase counts. <b>React before the phrase ends</b> is faster, but may react to a half-heard phrase.</li>
+      <li>In languages written with spaces a keyword must be heard as a whole word: “on” is not found in “one”.</li>
       <li>If several keywords are heard in one phrase, the one heard last is used.</li>
+      <li>The commands are only written. Answers of the instrument are not read, so use commands that do not produce an answer.</li>
+      <li>Be careful with commands that switch an output on. Background talk can be mistaken for a keyword.</li>
     </ul>
   </template>
 
