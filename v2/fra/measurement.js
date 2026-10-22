@@ -96,7 +96,8 @@ function fetchData() {
             lissajousChart.data.datasets[1].data = build_xy(ch1_result.filtered, ch2_result.filtered);
             lissajousChart.update();
 
-            const analysed = findPhaseDifference(ch1_result.filtered, ch2_result.filtered, samplingPeriod);
+            // The analysis uses the raw waves (it only looks at one frequency); the filter is for the charts.
+            const analysed = findPhaseDifference(ch1_result.raw, ch2_result.raw, samplingPeriod);
 
             const problem = analysisProblem(analysed);
             if (problem) {
