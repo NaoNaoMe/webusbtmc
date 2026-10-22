@@ -53,6 +53,42 @@ test('a steady sine wave has similar periods', () => {
   }
 });
 
+// The page sets the time base so that a few periods are on the screen: the phase must not depend
+// on whole samples (4 periods in 1000 points: one sample is 1.4 degrees).
+test('a few periods on the screen: the phase is finer than one sample', () => {
+  for (const [periods, lag] of [[4, 17.3], [4, 63.7], [2.5, 41.2], [10, 5.5]]) {
+    const ts = periods / 1600 / N;
+    const make = (phase, amplitude) => Array.from({ length: N }, (_, i) => amplitude * Math.sin(2 * Math.PI * 1600 * i * ts + phase));
+    const result = findPhaseDifference(make(0.3, 1), make(0.3 - lag * DEG, 0.5), ts);
+    near(result.phase_rad / DEG, -lag, 0.05, `phase with ${periods} periods`);
+    near(result.gain, 0.5, 1e-3, 'gain');
+    near(result.freq / 1600, 1, 1e-3, 'frequency');
+  }
+});
+
+test('noise around zero does not make extra periods (4 periods, noise of 10 percent)', () => {
+  const next = random(3);
+  const ts = 4 / 1600 / N;
+  const make = (phase, amplitude) => Array.from({ length: N }, (_, i) =>
+    amplitude * Math.sin(2 * Math.PI * 1600 * i * ts + phase) + 0.1 * amplitude * (next() - 0.5) * 2);
+  const result = findPhaseDifference(make(0, 1), make(-0.5, 0.5), ts);
+  near(result.freq / 1600, 1, 0.02, 'frequency');
+  near(result.gain, 0.5, 0.02, 'gain');
+  near(result.phase_rad, -0.5, 0.05, 'phase');
+  assert.ok(result.periodSpread < 0.3, `spread ${result.periodSpread}`);
+});
+
+test('a harmonic does not move the phase', () => {
+  const ts = 4 / 1600 / N;
+  const make = (phase, amplitude) => Array.from({ length: N }, (_, i) => {
+    const w = 2 * Math.PI * 1600 * i * ts;
+    return amplitude * (Math.sin(w + phase) + 0.1 * Math.sin(3 * w));
+  });
+  const result = findPhaseDifference(make(0, 1), make(-0.8, 0.5), ts);
+  near(result.phase_rad, -0.8, 0.02, 'phase');
+  near(result.gain, 0.5, 0.01, 'gain');
+});
+
 test('a little noise on a sine wave is still a signal', () => {
   const next = random(7);
   const noisy = sine(1600, 1, 0).map((v) => v + 0.02 * (next() - 0.5));
