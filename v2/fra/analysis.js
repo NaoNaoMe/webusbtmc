@@ -34,7 +34,12 @@ function averagePairs(values) {
     return result;
 }
 
-function findPhaseDifference(waveA, waveB, ts) {
+/**
+ * Gain, frequency and phase of waveB relative to waveA (both sampled every `ts` seconds).
+ * Returns { gain, freq, phase_rad, periodCount, periodSpread }. periodSpread tells a steady sine
+ * wave (small) from noise (large). Everything is NaN when the waves differ in length.
+ */
+export function findPhaseDifference(waveA, waveB, ts) {
     // Check if both waveforms have the same length
     if (waveA.length !== waveB.length) {
         return { gain: NaN, freq: NaN, phase_rad: NaN };

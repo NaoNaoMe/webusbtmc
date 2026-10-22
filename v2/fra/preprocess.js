@@ -1,4 +1,4 @@
-function lpf1stOrder(values, cutOffFreq, ts) {
+export function lpf1stOrder(values, cutOffFreq, ts) {
     let filtered = [];
     if (values.length === 0) {
         return { raw: values, filtered: filtered  };
@@ -22,6 +22,6 @@ function lpf1stOrder(values, cutOffFreq, ts) {
     return { raw: values, filtered: filtered  };
 }
 
-function build_xy(ch1_data, ch2_data) {
+export function build_xy(ch1_data, ch2_data) {
     return ch1_data.map((x, i) => ({ x: x, y: ch2_data[i] }));
 }
