@@ -137,14 +137,6 @@ h1, h2, h3 { text-wrap: balance; }
   background: var(--accent-soft); color: var(--accent); margin-left: 8px; vertical-align: 2px;
 }
 .theme-toggle { min-height: 36px; padding: 4px 10px; }
-.pagenav { display: flex; gap: 6px; overflow-x: auto; padding-block: 8px; margin-inline: -2px; scrollbar-width: thin; }
-.pagenav a {
-  white-space: nowrap; color: var(--muted); border-radius: 8px; padding: 7px 12px; font-weight: 600; font-size: 14px; text-decoration: none;
-}
-.pagenav a:hover { color: var(--fg); background: var(--surface-2); }
-.pagenav a[aria-current="page"] { color: var(--accent); background: var(--accent-soft); }
-.pagenav a:focus-visible { outline: 2px solid var(--accent); outline-offset: 2px; }
-
 .card-lite { background: var(--surface); border: 1px solid var(--line); border-radius: var(--radius); }
 .panel { padding: 16px; min-width: 0; }
 .panel h2 { font-size: 13px; text-transform: uppercase; letter-spacing: .07em; color: var(--muted); font-weight: 650; margin: 0 0 12px; }
