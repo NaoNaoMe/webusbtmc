@@ -15,6 +15,7 @@ import { setupPointSelection } from './pointSelection.js';
 // The frequency response page: this file connects the buttons to what they do.
 //   state.js          what the modules share
 //   dom.js            the elements of the page
+//   constants.js      numbers and colours the charts and the measurement share
 //   charts.js         the five charts
 //   measurement.js    fetch, analyse, add a point
 //   plotActions.js    clear, save, copy, load, trim, unit

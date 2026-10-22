@@ -1,4 +1,4 @@
-// chartConfig.js
+// Numbers and colours that the charts and the measurement share
 export const MAX_DATA_POINTS = 10000;
 
 export const userColors = {

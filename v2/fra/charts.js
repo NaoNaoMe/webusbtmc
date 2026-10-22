@@ -1,4 +1,4 @@
-import { userColors } from './chartConfig.js';
+import { userColors } from './constants.js';
 import { state } from './state.js';
 import { waveformCtx, lissajousCtx, magnitudeCtx, phaseCtx, nyquistCtx } from './dom.js';
 

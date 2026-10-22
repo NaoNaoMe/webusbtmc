@@ -1,4 +1,4 @@
-import { MAX_DATA_POINTS } from './chartConfig.js';
+import { MAX_DATA_POINTS } from './constants.js';
 import { findPhaseDifference } from './analysis.js';
 import { lpf1stOrder, build_xy } from './preprocess.js';
 import { processBodeData } from './bodeData.js';
