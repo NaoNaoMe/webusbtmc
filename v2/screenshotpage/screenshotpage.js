@@ -9,6 +9,7 @@ const $ = (id) => document.getElementById(id);
 
 const takeashotButton = $('takeashot-button');
 const fetchDeviceInfoButton = $('fetchDeviceInfo-button');
+const copyImageButton = $('copy-image-button');
 
 const inputCommandText = $('command-input');
 const delayTimeText = $('delay-input');
@@ -54,6 +55,21 @@ function checkMIMEType(data) {
   return { blobtype: blobtype, extension: ext };
 }
 
+// 20261022-203423
+function timestamp() {
+  const d = new Date();
+  const p = (n) => String(n).padStart(2, '0');
+  return d.getFullYear() + p(d.getMonth() + 1) + p(d.getDate()) + '-' + p(d.getHours()) + p(d.getMinutes()) + p(d.getSeconds());
+}
+
+// The instrument is not known: ask for the command instead of failing later.
+function askForCommand() {
+  $('advanced').open = true;
+  inputCommandText.focus();
+  showMessage('warn', 'Enter the screenshot command of your instrument.',
+    'This instrument is not known yet. The command is in its programming manual. Enter it under Advanced settings.');
+}
+
 function display(bytes, name) {
   if (!bytes || bytes.length === 0) {
     showMessage('warn', 'No image was received.',
@@ -81,9 +97,10 @@ function display(bytes, name) {
   window.URL.revokeObjectURL(downloadLink.href);
   downloadLink.href = window.URL.createObjectURL(blob);
   downloadLink.target = '_blank';
-  downloadLink.download = name + '.' + tmp.extension;
+  downloadLink.download = name + '_' + timestamp() + '.' + tmp.extension;
   downloadLink.classList.remove('disabled');
   downloadLink.removeAttribute('aria-disabled');
+  copyImageButton.disabled = false;
 }
 
 setupConnectButton({
@@ -95,21 +112,43 @@ setupConnectButton({
     inputBinaryBlockCheck.checked = worker.isBinaryBlock;
     yourDeviceTextarea.value =
       'VID_' + hex(device.vendorId) + ' ' + 'PID_' + hex(device.productId) + '\n';
+    if (!worker.command) {
+      askForCommand();
+    }
   },
   close: () => worker.close(),
 });
 
 takeashotButton.onclick = () => runWithSpinner(takeashotButton, async () => {
-  // The settings are used only while the advanced settings are open.
-  if ($('advanced').open) {
-    worker.command = inputCommandText.value;
-    worker.delay = delayTimeText.value;
-    worker.isBinaryBlock = inputBinaryBlockCheck.checked;
+  worker.command = inputCommandText.value;
+  worker.delay = delayTimeText.value;
+  worker.isBinaryBlock = inputBinaryBlockCheck.checked;
+  if (!worker.command) {
+    askForCommand();
+    return;
   }
 
   const result = await worker.capture();
   display(result, worker.device.productName.replace(/\s/g, ''));
 }, () => worker.opened);
+
+copyImageButton.onclick = async () => {
+  const html = copyImageButton.innerHTML;
+  try {
+    // Only PNG can be put on the clipboard, so the image is drawn on a canvas first.
+    const image = $('screenshot-image');
+    const canvas = document.createElement('canvas');
+    canvas.width = image.naturalWidth;
+    canvas.height = image.naturalHeight;
+    canvas.getContext('2d').drawImage(image, 0, 0);
+    const png = await new Promise((resolve) => canvas.toBlob(resolve, 'image/png'));
+    await navigator.clipboard.write([new ClipboardItem({ 'image/png': png })]);
+    copyImageButton.innerHTML = '<i class="bi bi-check2 me-1"></i>Copied';
+    setTimeout(() => { copyImageButton.innerHTML = html; }, 1500);
+  } catch (error) {
+    showMessage('warn', 'Could not copy the image.', 'Use Save image instead.');
+  }
+};
 
 fetchDeviceInfoButton.onclick = () => runWithSpinner(fetchDeviceInfoButton, async () => {
   const result = await worker.fetchDeviceInfo();
