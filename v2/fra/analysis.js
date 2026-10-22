@@ -139,6 +139,10 @@ function findPhaseDifference(waveA, waveB, ts) {
     const phase_time = phaseCounter * ts;
     const phase_rad = (2 * Math.PI * freq) * phase_time;
 
+    // How much the periods differ (after the median, periods is sorted). A sine wave gives similar
+    // periods; noise does not. The caller uses this to tell a real signal from noise.
+    const periodSpread = periods.length > 0 ? (periods[periods.length - 1] - periods[0]) / periodCounter : Infinity;
+
     // Return calculated values
-    return { gain: gain, freq: freq, phase_rad: phase_rad };
+    return { gain: gain, freq: freq, phase_rad: phase_rad, periodCount: periods.length, periodSpread: periodSpread };
 }
