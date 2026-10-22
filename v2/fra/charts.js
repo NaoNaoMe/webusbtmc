@@ -24,6 +24,8 @@ const waveformConfig = {
         datasets: [
             {
                 label: 'Ch1',
+                order: 2,
+                borderWidth: 1,
                 data: [],
                 fill: false,
                 showLine: true,
@@ -33,7 +35,8 @@ const waveformConfig = {
             },
             {
                 label: 'Ch1_filtered',
-                borderDash: [6, 3],
+                order: 1,
+                borderWidth: 2,
                 data: [],
                 fill: false,
                 showLine: true,
@@ -44,6 +47,8 @@ const waveformConfig = {
             },
             {
                 label: 'Ch2',
+                order: 2,
+                borderWidth: 1,
                 data: [],
                 fill: false,
                 showLine: true,
@@ -53,7 +58,8 @@ const waveformConfig = {
             },
             {
                 label: 'Ch2_filtered',
-                borderDash: [6, 3],
+                order: 1,
+                borderWidth: 2,
                 data: [],
                 fill: false,
                 showLine: true,
@@ -142,6 +148,8 @@ const lissajousConfig = {
         datasets: [
             {
                 label: 'xy',
+                order: 2,
+                borderWidth: 1,
                 data: [],
                 fill: false,
                 showLine: true,
@@ -149,8 +157,9 @@ const lissajousConfig = {
                 pointHoverRadius: 0,
             },
             {
-                label: 'xy_filterd',
-                borderDash: [6, 3],
+                label: 'xy_filtered',
+                order: 1,
+                borderWidth: 2,
                 data: [],
                 fill: false,
                 showLine: true,
@@ -492,23 +501,30 @@ function applyChartTheme() {
     const ch1 = css.getPropertyValue('--ch1').trim();
     const ch2 = css.getPropertyValue('--ch2').trim();
     const accent = css.getPropertyValue('--accent').trim();
-    const paint = (dataset, color) => {
-        dataset.borderColor = color;
-        dataset.backgroundColor = color;   // the colour box of the legend
-        dataset.pointBackgroundColor = color;
+    // The raw wave is thin and pale, the filtered wave is thick and solid in the same colour.
+    const pale = (color) => {
+        const hex = color.replace('#', '');
+        const [r, g, b] = [0, 2, 4].map((i) => parseInt(hex.slice(i, i + 2), 16));
+        return `rgba(${r}, ${g}, ${b}, 0.55)`;
+    };
+    const paint = (dataset, color, isRaw = false) => {
+        const shown = isRaw ? pale(color) : color;
+        dataset.borderColor = shown;
+        dataset.backgroundColor = shown;   // the colour box of the legend
+        dataset.pointBackgroundColor = shown;
     };
     const [wave1, wave1Filtered, wave2, wave2Filtered] = waveformChart.data.datasets;
-    paint(wave1, ch1);
+    paint(wave1, ch1, true);
     paint(wave1Filtered, ch1);
-    paint(wave2, ch2);
+    paint(wave2, ch2, true);
     paint(wave2Filtered, ch2);
     for (const [axis, color] of [['y1', ch1], ['y2', ch2]]) {
         waveformChart.options.scales[axis].ticks.color = color;
         waveformChart.options.scales[axis].title.color = color;
     }
-    for (const dataset of lissajousChart.data.datasets) {
-        paint(dataset, accent);
-    }
+    const [xy, xyFiltered] = lissajousChart.data.datasets;
+    paint(xy, accent, true);
+    paint(xyFiltered, accent);
     paint(nyquistChart.data.datasets[0], accent);
 
     for (const chart of [waveformChart, lissajousChart, magnitudePlot, phasePlot, nyquistChart]) {
