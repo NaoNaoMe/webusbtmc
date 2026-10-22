@@ -26,6 +26,7 @@ export function setConnectionState(state, { name = '', detail = '', error = '' }
   $('conn-sub').textContent = text[1];
 
   button.disabled = state === 'busy';
+  button.toggleAttribute('aria-busy', state === 'busy');
   button.classList.toggle('btn-primary', state !== 'on');
   button.classList.toggle('btn-outline-secondary', state === 'on');
   button.innerHTML = {
@@ -81,7 +82,7 @@ export function showError(error) {
   switch (error && error.name) {
     case 'UsbtmcTimeoutError':
       showMessage('warn', 'No answer from the instrument.',
-        'Write a command that ends with “?” first, then press Read. The connection can still be used.');
+        'Write a query first (the command name is followed by “?”), or raise the timeout if the instrument is slow. The connection can still be used.');
       break;
     case 'UsbtmcProtocolError':
       showMessage('err', 'The instrument answered in an unexpected way.', message);
@@ -104,16 +105,26 @@ export function appendLog(log, kind, text) {
 
   const line = document.createElement('div');
   line.className = 'ln';
+  const time = document.createElement('span');
+  time.className = 'time';
+  time.textContent = new Date().toLocaleTimeString([], { hour12: false });
   const mark = document.createElement('span');
   mark.className = kind;
   mark.textContent = { tx: '→', rx: '←', info: '•' }[kind];
   const body = document.createElement('span');
   body.className = kind;
   body.textContent = text;
-  line.append(mark, body);
+  line.append(time, mark, body);
 
   log.append(line);
   log.scrollTop = log.scrollHeight;
+}
+
+/** The text of the log, one line per entry, for copying. */
+export function logText(log) {
+  return [...log.querySelectorAll('.ln')]
+    .map((line) => [...line.children].map((part) => part.textContent).join(' '))
+    .join('\n');
 }
 
 const usbtmcFilters = [
@@ -184,6 +195,7 @@ export async function runWithSpinner(button, operation, isOpen) {
   const html = button.innerHTML;
   clearMessages();
   button.disabled = true;
+  button.setAttribute('aria-busy', 'true');
   button.innerHTML = spinner + html;
   try {
     await operation();
@@ -192,6 +204,7 @@ export async function runWithSpinner(button, operation, isOpen) {
     showError(error);
   } finally {
     button.innerHTML = html;
+    button.removeAttribute('aria-busy');
     button.disabled = !isOpen();
   }
 }
@@ -203,4 +216,37 @@ export function confirmLeaveWhileConnected(isOpen) {
       event.preventDefault();
     }
   });
+}
+
+/**
+ * "How to use" dialog. The page provides
+ *   <button id="howto-button">  and  <template id="howto-body" data-title="...">the text</template>.
+ */
+export function setupHowTo() {
+  const template = $('howto-body');
+  const button = $('howto-button');
+  if (!template || !button) {
+    return;
+  }
+
+  const modal = document.createElement('div');
+  modal.className = 'modal fade';
+  modal.id = 'howto-modal';
+  modal.tabIndex = -1;
+  modal.setAttribute('aria-labelledby', 'howto-title');
+  modal.setAttribute('aria-hidden', 'true');
+  modal.innerHTML =
+    '<div class="modal-dialog modal-lg modal-dialog-centered modal-dialog-scrollable modal-fullscreen-sm-down">' +
+    '<div class="modal-content">' +
+    '<div class="modal-header"><h5 class="modal-title" id="howto-title"></h5>' +
+    '<button type="button" class="btn-close" data-bs-dismiss="modal" aria-label="Close"></button></div>' +
+    '<div class="modal-body"></div>' +
+    '<div class="modal-footer"><button type="button" class="btn btn-primary" data-bs-dismiss="modal">OK</button></div>' +
+    '</div></div>';
+  modal.querySelector('.modal-title').textContent = template.dataset.title || 'How to use';
+  modal.querySelector('.modal-body').append(template.content.cloneNode(true));
+  document.body.append(modal);
+
+  button.setAttribute('data-bs-toggle', 'modal');
+  button.setAttribute('data-bs-target', '#howto-modal');
 }

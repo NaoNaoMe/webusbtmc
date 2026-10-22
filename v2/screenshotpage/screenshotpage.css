@@ -9,6 +9,10 @@
   overflow: hidden;
 }
 
+/* One column: the Capture panel is above the screen, so the button does not move out of reach. */
+.capture-panel { order: -1; }
+@container (min-width: 760px) { .capture-panel { order: 0; } }
+
 .screen img {
   display: block;
   max-width: 100%;

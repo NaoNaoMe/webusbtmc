@@ -170,7 +170,7 @@ class Takescreenshot {
     }
     else {
       if (!this.#command) {
-        throw new Error('Not supported device');
+        throw new Error('There is no screenshot command for this instrument. Enter one under Advanced settings.');
       }
 
       await this.#tmc.write(this.#command);
