@@ -554,6 +554,7 @@ function applyChartTheme() {
     const accent = css.getPropertyValue('--accent').trim();
     const paint = (dataset, color) => {
         dataset.borderColor = color;
+        dataset.backgroundColor = color;   // the colour box of the legend
         dataset.pointBackgroundColor = color;
     };
     const [wave1, wave1Filtered, wave2, wave2Filtered] = waveformChart.data.datasets;
