@@ -3,7 +3,7 @@
 import GetCurve from './getCurve.js';
 import { MAX_DATA_POINTS } from './chartConfig.js';
 import { userColors } from './chartConfig.js';
-import { setupConnectButton, confirmLeaveWhileConnected, showMessage, clearMessages } from '../common/ui.js';
+import { setupConnectButton, showMessage, clearMessages } from '../common/ui.js';
 
 let worker = new GetCurve();
 let isTSVonWave = false;
@@ -563,6 +563,55 @@ function applyChartTheme() {
 applyChartTheme();
 window.addEventListener('tmc-themechange', applyChartTheme);
 
+// ---- Last measurement (the numbers behind the newest point)
+let lastAnalysed = null;
+
+function formatFrequency(hz) {
+    const value = frequencyUnit === 'Hz' ? hz : hz * 2 * Math.PI;
+    const [scale, prefix] = [[1e6, 'M'], [1e3, 'k'], [1, '']].find(([s]) => Math.abs(value) >= s) || [1, ''];
+    return (value / scale).toPrecision(4) + ' ' + prefix + frequencyUnit;
+}
+
+function showLastMeasurement(analysed) {
+    lastAnalysed = analysed;
+    const dash = '\u2014';
+    document.getElementById('last-freq').textContent = analysed ? formatFrequency(analysed.freq) : dash;
+    document.getElementById('last-gain').textContent = analysed ? (20 * Math.log10(analysed.gain)).toFixed(2) + ' dB' : dash;
+    document.getElementById('last-phase').textContent = analysed ? (analysed.phase_rad * 180 / Math.PI).toFixed(1) + '\u00b0' : dash;
+}
+
+// ---- Plots that were not saved yet (saved = exported, copied or loaded from a file)
+let plotsSaved = true;
+const markPlotsChanged = () => { plotsSaved = false; };
+const markPlotsSaved = () => { plotsSaved = true; };
+
+// Leaving the page closes the connection and drops the plots, so ask first.
+window.addEventListener('beforeunload', (event) => {
+    const unsavedPlots = magnitudePlot.data.labels.length > 0 && !plotsSaved;
+    if (worker.opened || unsavedPlots) {
+        event.preventDefault();
+    }
+});
+
+// ---- Why a fetch gave nothing
+const CAPTURE_PROBLEMS = {
+    'no-waveform': ['The instrument has no waveform to read.', 'Check that CH1 and CH2 are on and show a signal, and that the instrument is running.'],
+    'format-changed': ['The instrument was set to send waveforms as bytes.', 'Press Fetch again.'],
+    'length-mismatch': ['CH1 and CH2 returned different numbers of points.', 'Check that both channels are on, then press Fetch again.'],
+};
+
+// Why the waveforms cannot be analysed, or null when they can.
+function analysisProblem(analysed) {
+    if (!isFinite(analysed.freq)) {
+        return ['The frequency of CH1 could not be found.',
+            'CH1 must show at least two periods of a sine wave with a large enough amplitude. Adjust the horizontal and vertical ranges of the oscilloscope.'];
+    }
+    if (!(analysed.gain > 0) || !isFinite(analysed.gain)) {
+        return ['CH2 shows no signal.', 'Check the connection to the output of the circuit and the vertical range of CH2.'];
+    }
+    return null;
+}
+
 // Button event listeners
 fetchButton.onclick = handleActionButtonClick;
 clearPlotsButton.onclick = handleClearPlotsButtonClick;
@@ -588,7 +637,6 @@ setupConnectButton({
     onChange: (state) => { fetchButton.disabled = state !== 'on'; },
 });
 
-confirmLeaveWhileConnected(() => worker.opened);
 
 let isDragging = false;
 let startPoint = { x: 0, y: 0 };
@@ -798,6 +846,7 @@ function handleExportBodePlotClick() {
     document.body.appendChild(a);
     a.click();
     document.body.removeChild(a);
+    markPlotsSaved();
 }
 
 function handleCopy2clipboardBodePlotClick() {
@@ -811,6 +860,7 @@ function handleCopy2clipboardBodePlotClick() {
     const icon = copy2clipboardBodePlotButton.querySelector("i");
     navigator.clipboard.writeText(contents).then(
         () => {
+            markPlotsSaved();
             icon.classList.replace(clipboardClass, clipboard2checkClass);
 
             setTimeout(() => {
@@ -847,6 +897,7 @@ function handleGenerateSubcktButtonClick() {
     document.body.removeChild(a);
     
     subckt_num = subckt_num + 1;
+    markPlotsSaved();
 }
 
 function handleImportBodePlotChange(event) {
@@ -862,6 +913,7 @@ function handleImportBodePlotChange(event) {
                 phasePlot.options.scales.x.title.text = `Frequency (${frequencyUnit})`;
             }
             redrawBodePlot(parsedData);
+            markPlotsSaved();
         };
         reader.readAsText(file);
         event.target.value = '';    // Reset input element to allow selecting the same file again
@@ -874,9 +926,13 @@ function handleToggleFrequencyUnitClick() {
     phasePlot.options.scales.x.title.text = `Frequency (${frequencyUnit})`;
     magnitudePlot.update();
     phasePlot.update();
+    if (lastAnalysed) {
+        showLastMeasurement(lastAnalysed);
+    }
 }
 
 function handleTrimBodePlotButtonClick() {
+    markPlotsChanged();
     const trimmedData = processBodeData(magnitudePlot.data.labels, magnitudePlot.data.datasets[0].data, phasePlot.data.datasets[0].data);
     redrawBodePlot(trimmedData);
 }
@@ -904,7 +960,10 @@ function fetchData() {
         }
 
         if (isNaN(result.data_ch1[0]) || isNaN(result.data_ch2[0]) || isNaN(result.rate)) {
-            console.log('Failed to capture waveforms.');
+            if (result.reason !== 'busy') {
+                const [title, body] = CAPTURE_PROBLEMS[result.reason] || ['The waveforms could not be read.', 'Check the connection and press Fetch again.'];
+                showMessage('warn', title, body);
+            }
         }
         else {
             // Apply low-pass filter to both waveforms
@@ -929,10 +988,14 @@ function fetchData() {
 
             const analysed = findPhaseDifference(ch1_result.filtered, ch2_result.filtered, samplingPeriod);
 
-            if (isNaN(analysed.gain)) {
-                console.log('Failed to analyze waveforms.');
+            const problem = analysisProblem(analysed);
+            if (problem) {
+                showMessage('warn', problem[0], problem[1]);
             }
             else {
+                clearMessages();
+                showLastMeasurement(analysed);
+                markPlotsChanged();
                 magnitudePlot.data.labels.push(analysed.freq);
                 magnitudePlot.data.datasets[0].data.push(20 * Math.log10(analysed.gain));
                 magnitudePlot.update();
@@ -1167,6 +1230,7 @@ function removeSelectedPoints(chart, selectedPoints) {
 }
 
 function removeDataPoint(chart, index) {
+    markPlotsChanged();
     chart.data.labels.splice(index, 1);
     chart.data.datasets[0].data.splice(index, 1);
 }
