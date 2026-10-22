@@ -84,8 +84,6 @@ const waveformConfig = {
         datasets: [
             {
                 label: 'Ch1',
-                borderColor: userColors.blue[5],
-                pointBackgroundColor: userColors.blue[5],
                 data: [],
                 fill: false,
                 showLine: true,
@@ -95,8 +93,7 @@ const waveformConfig = {
             },
             {
                 label: 'Ch1_filtered',
-                borderColor: userColors.blue[7],
-                pointBackgroundColor: userColors.blue[7],
+                borderDash: [6, 3],
                 data: [],
                 fill: false,
                 showLine: true,
@@ -107,8 +104,6 @@ const waveformConfig = {
             },
             {
                 label: 'Ch2',
-                borderColor: userColors.red[5],
-                pointBackgroundColor: userColors.red[5],
                 data: [],
                 fill: false,
                 showLine: true,
@@ -118,8 +113,7 @@ const waveformConfig = {
             },
             {
                 label: 'Ch2_filtered',
-                borderColor: userColors.red[7],
-                pointBackgroundColor: userColors.red[7],
+                borderDash: [6, 3],
                 data: [],
                 fill: false,
                 showLine: true,
@@ -208,8 +202,6 @@ const lissajousConfig = {
         datasets: [
             {
                 label: 'xy',
-                borderColor: userColors.green[5],
-                pointBackgroundColor: userColors.green[5],
                 data: [],
                 fill: false,
                 showLine: true,
@@ -218,8 +210,7 @@ const lissajousConfig = {
             },
             {
                 label: 'xy_filterd',
-                borderColor: userColors.green[7],
-                pointBackgroundColor: userColors.green[7],
+                borderDash: [6, 3],
                 data: [],
                 fill: false,
                 showLine: true,
@@ -431,8 +422,6 @@ const nyquistConfig = {
         labels: [],
         datasets: [{
             label: 'Nyquist Plot',
-            borderColor: userColors.green[7],
-            pointBackgroundColor: userColors.green[3],
             data: [],
             fill: false,
             showLine: false,
@@ -557,6 +546,31 @@ function applyChartTheme() {
             scale.title.color = text;
         }
         chart.options.plugins.legend.labels.color = text;
+    }
+
+    // Channel colours of an oscilloscope: CH1 and its axis, CH2 and its axis
+    const ch1 = css.getPropertyValue('--ch1').trim();
+    const ch2 = css.getPropertyValue('--ch2').trim();
+    const accent = css.getPropertyValue('--accent').trim();
+    const paint = (dataset, color) => {
+        dataset.borderColor = color;
+        dataset.pointBackgroundColor = color;
+    };
+    const [wave1, wave1Filtered, wave2, wave2Filtered] = waveformChart.data.datasets;
+    paint(wave1, ch1);
+    paint(wave1Filtered, ch1);
+    paint(wave2, ch2);
+    paint(wave2Filtered, ch2);
+    for (const [axis, color] of [['y1', ch1], ['y2', ch2]]) {
+        waveformChart.options.scales[axis].ticks.color = color;
+        waveformChart.options.scales[axis].title.color = color;
+    }
+    for (const dataset of lissajousChart.data.datasets) {
+        paint(dataset, accent);
+    }
+    paint(nyquistChart.data.datasets[0], accent);
+
+    for (const chart of [waveformChart, lissajousChart, magnitudePlot, phasePlot, nyquistChart]) {
         chart.update('none');
     }
 }
