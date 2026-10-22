@@ -1,23 +1,7 @@
-body {
-  padding-top: 2rem;
-}
-
-.form-group {
-  margin-bottom: 1rem;
-}
-
-#waveformChart {
-  height: 300px;
-}
-
-#magnitudePlot {
-  height: 300px;
-}
-
-#phasePlot {
-  height: 300px;
-}
-
+/* Chart sizes of the frequency response sample */
+#waveformChart,
+#magnitudePlot,
+#phasePlot,
 #nyquistPlot {
   height: 300px;
 }

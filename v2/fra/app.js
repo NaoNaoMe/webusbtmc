@@ -3,6 +3,7 @@
 import GetCurve from './getCurve.js';
 import { MAX_DATA_POINTS } from './chartConfig.js';
 import { userColors } from './chartConfig.js';
+import { setupConnectButton, confirmLeaveWhileConnected, showMessage, clearMessages } from '../common/ui.js';
 
 let worker = new GetCurve();
 let isTSVonWave = false;
@@ -23,7 +24,6 @@ const magnitudeCanvas = document.getElementById('magnitudePlot').closest('canvas
 const phaseCanvas = document.getElementById('phasePlot').closest('canvas');
 const nyquistCanvas = document.getElementById('nyquistPlot').closest('canvas');
 
-const connectButton = document.getElementById('connect-button');
 const fetchButton = document.getElementById('fetch-button');
 const autoFetchCheckbox = document.getElementById('auto-fetch-checkbox');
 
@@ -48,18 +48,14 @@ const toggleNyquistPlotButton = document.getElementById('toggle-nyquist-plot');
 const enableDeleteSwitch = document.getElementById('enable-delete-switch');
 const trimBodePlotButton = document.getElementById('trimBodePlotButton');
 
-const windowsAdviceText = document.getElementById('windows-advice-text');
-
 const enableKeydownCheckbox = document.getElementById('enable-keydown-checkbox');
 
 // Store the default HTML content of the each buttons
 const defaultFetchButtonHTML = fetchButton.innerHTML;
-const defaultconnectButtonHTML = connectButton.innerHTML;
 
 // Spinner and icon HTML snippets
 const spinnerWidget = '<span class="spinner-border spinner-border-sm mr-2" role="status" aria-hidden="true"></span>';
 const puaseIcon ='<i class="bi bi-pause"></i>';
-const plugfillIcon = '<i class="bi bi-plug-fill"></i>';
 
 // Define class names as constants
 const spreadsheetfillClass = 'bi-file-earmark-spreadsheet-fill';
@@ -320,7 +316,7 @@ const magnitudeConfig = {
                     stepSize: 20
                 },
                 grid: {
-                    color: 'rgba(0, 0, 0, 0.1)',
+                    color: () => Chart.defaults.borderColor,
                     lineWidth: 1
                 }
             }
@@ -399,7 +395,7 @@ const phaseConfig = {
                     stepSize: 45
                 },
                 grid: {
-                    color: 'rgba(0, 0, 0, 0.1)',
+                    color: () => Chart.defaults.borderColor,
                     lineWidth: 1
                 }
             }
@@ -546,8 +542,28 @@ const magnitudePlot = new Chart(magnitudeCtx, magnitudeConfig);
 const phasePlot = new Chart(phaseCtx, phaseConfig);
 const nyquistChart = new Chart(nyquistCtx, nyquistConfig);
 
+// Chart text and grid follow the theme of the page
+function applyChartTheme() {
+    const css = getComputedStyle(document.documentElement);
+    const text = css.getPropertyValue('--muted').trim();
+    const line = css.getPropertyValue('--line').trim();
+    Chart.defaults.color = text;
+    Chart.defaults.borderColor = line;
+    // Existing charts keep the colours they resolved earlier, so set them on each chart.
+    for (const chart of [waveformChart, lissajousChart, magnitudePlot, phasePlot, nyquistChart]) {
+        for (const scale of Object.values(chart.options.scales)) {
+            scale.ticks.color = text;
+            scale.grid.color = line;
+            scale.title.color = text;
+        }
+        chart.options.plugins.legend.labels.color = text;
+        chart.update('none');
+    }
+}
+applyChartTheme();
+window.addEventListener('tmc-themechange', applyChartTheme);
+
 // Button event listeners
-connectButton.onclick = handleConnectButtonClick;
 fetchButton.onclick = handleActionButtonClick;
 clearPlotsButton.onclick = handleClearPlotsButtonClick;
 exportAsTsvBodePlotButton.onclick = handleExportAsTsvBodePlotButtonClick
@@ -565,7 +581,14 @@ trimBodePlotButton.onclick = handleTrimBodePlotButtonClick;
 importBodePlot.addEventListener('change', handleImportBodePlotChange);
 enableKeydownCheckbox.addEventListener('change', toggleKeydownEvent);
 
-window.onload = handleWindowLoad;
+setupConnectButton({
+    isOpen: () => worker.opened,
+    open: (device) => worker.open(device),
+    close: () => worker.close(),
+    onChange: (state) => { fetchButton.disabled = state !== 'on'; },
+});
+
+confirmLeaveWhileConnected(() => worker.opened);
 
 let isDragging = false;
 let startPoint = { x: 0, y: 0 };
@@ -632,49 +655,10 @@ function handleTogglePlotClick() {
     toggleVisibility(document.getElementById('plotContainer'));
 }
 
-function handleConnectButtonClick() {
-    if (worker.opened) {
-        worker.close()
-            .catch((error) => {
-                alert(error);
-            })
-            .finally(() => {
-                connectButton.innerHTML = defaultconnectButtonHTML;
-                fetchButton.disabled = true;
-            });
-    } else {
-        const filters = [
-            { 'classCode': 0xFE, 'subclassCode': 0x03, 'protocolCode': 0x01 },
-        ];
-        navigator.usb.requestDevice({ 'filters': filters })
-            .then((device) => {
-                connectButton.innerHTML = spinnerWidget + ' Connecting..';
-                connectButton.disabled = true;
-
-                worker.open(device)
-                    .then(() => {
-                        const deviceName = worker.device.productName.replace(/\s/g, '');
-                        connectButton.innerHTML = plugfillIcon + ' ' + deviceName + ' is connected';
-                        fetchButton.disabled = false;
-                    })
-                    .catch((error) => {
-                        alert(error);
-                        connectButton.innerHTML = defaultconnectButtonHTML;
-                        fetchButton.disabled = true;
-                    })
-                    .finally(() => {
-                        connectButton.disabled = false;
-                    });
-            })
-            .catch((error) => {
-                alert(error);
-            });
-    }
-}
-
 function handleActionButtonClick() {
+    clearMessages();
     if (magnitudePlot.data.labels.length >= MAX_DATA_POINTS || phasePlot.data.labels.length >= MAX_DATA_POINTS) {
-        alert('Maximum data points reached.');
+        showMessage('warn', 'Maximum data points reached.', 'Clear the plots to continue.');
         return;
     }
 
@@ -834,7 +818,7 @@ function handleCopy2clipboardBodePlotClick() {
             }, 2000);
         },
         () => {
-            alert("Failed to copy.");
+            showMessage('warn', 'Could not copy to the clipboard.');
         }
     );
 }
@@ -897,12 +881,6 @@ function handleTrimBodePlotButtonClick() {
     redrawBodePlot(trimmedData);
 }
 
-function handleWindowLoad() {
-    if (navigator.platform.indexOf('Win') >= 0) {
-        windowsAdviceText.classList.remove('d-none');
-    }
-}
-
 function fetchData() {
     if (magnitudePlot.data.labels.length >= MAX_DATA_POINTS || phasePlot.data.labels.length >= MAX_DATA_POINTS) {
         if (isFetchDataInterval) {
@@ -910,14 +888,14 @@ function fetchData() {
             fetchButton.innerHTML = defaultFetchButtonHTML;
             autoFetchCheckbox.checked = false;
             autoFetchCheckbox.disabled = false;
-            alert('Maximum data points reached. Auto fetch stopped.');
+            showMessage('warn', 'Maximum data points reached.', 'Auto fetch was stopped. Clear the plots to continue.');
         }
         return;
     }
     
     worker.fetch().then((result) => {
         if (!result.isSupported) {
-            alert('Not supported device.');
+            showMessage('err', 'This instrument is not supported.', 'Frequency response works with Tektronix and Keysight / Agilent oscilloscopes.');
             isFetchDataInterval = false;
             fetchButton.innerHTML = defaultFetchButtonHTML;
             autoFetchCheckbox.checked = false;
@@ -990,7 +968,7 @@ function fetchData() {
 
     }).catch((error) => {
         console.error('Error during fetching waveform:', error);
-        alert('An error occurred while fetching waveform: ' + error);
+        showMessage('err', 'Could not read the waveforms.', error && error.message ? error.message : String(error));
         isFetchDataInterval = false;
         fetchButton.innerHTML = defaultFetchButtonHTML;
         autoFetchCheckbox.checked = false;

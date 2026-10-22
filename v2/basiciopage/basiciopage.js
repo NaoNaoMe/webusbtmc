@@ -1,69 +1,32 @@
 'use strict';
 
 import Webusbtmc from '../webusbtmc/webusbtmc.js';
+import { setupConnectButton, runWithSpinner, confirmLeaveWhileConnected, showError, appendLog } from '../common/ui.js';
 
-let worker = new Webusbtmc();
+const worker = new Webusbtmc();
 
 let deviceName;
 let binaryFile;
-let writeTransferType;
-let readTransferType;
-let readOutputTo;
-
-const TransferType = {
-  Normal: 1,
-  Binary: 2,
-};
 
 const OutputTo = {
-  Text: 1,
-  Image: 2,
-  Object: 3,
+  Text: 'text',
+  Image: 'image',
+  Object: 'object',
 };
 
+const $ = (id) => document.getElementById(id);
 
-const spinnerWidget = '<span class="spinner-border spinner-border-sm mr-2" role="status" aria-hidden="true"></span>';
-const plugIcon = '<i class="bi bi-plug"></i>';
-
-const notification = document.getElementById('notification-message');
-const outputtextarea = document.getElementById('output-textarea');
-
-const connectButton = document.getElementById('connect-button');
-
-const inputtext = document.getElementById('input-text');
-const writeButton = document.getElementById('wr-button');
-const writeWhich = document.getElementById('wr-which');
-const writeTransferDataButton = document.getElementById('wr-transfer-data');
-const writeTransferBinaryButton = document.getElementById('wr-transfer-bin');
-
-
-const readButton = document.getElementById('rd-button');
-const readWhich = document.getElementById('rd-which');
-const readAsHow = document.getElementById('rd-as-how');
-const readLength = document.getElementById('rd-length');
-const readTransferDataButton = document.getElementById('rd-transfer-data');
-const readTransferBinaryButton = document.getElementById('rd-transfer-bin');
-
-const readAsTextButton = document.getElementById('rd-as-text');
-const readAsImageButton = document.getElementById('rd-as-image');
-const readAsObjectButton = document.getElementById('rd-as-object');
-
-
-const rstatusButton = document.getElementById('rstatus-button');
-const clearDeviceButton = document.getElementById('clear-button');
-const writeFileButton = document.getElementById('wr-filebutton');
-const writeFileName = document.getElementById('wr-filename');
-const clearTextButton = document.getElementById('clear-text-button');
+const log = $('output-log');
+const inputtext = $('input-text');
+const writeButton = $('wr-button');
+const readButton = $('rd-button');
+const rstatusButton = $('rstatus-button');
+const clearDeviceButton = $('clear-button');
+const writeFileButton = $('wr-filebutton');
+const clearTextButton = $('clear-text-button');
 
 function decimalToHex(d, padding = 2) {
-  let hex = Number(d).toString(16);
-  padding = typeof (padding) === undefined || padding === null ? padding = 2 : padding;
-
-  while (hex.length < padding) {
-    hex = '0' + hex;
-  }
-
-  return hex;
+  return Number(d).toString(16).padStart(padding, '0');
 }
 
 function checkMIMEType(data) {
@@ -101,11 +64,7 @@ function checkMIMEType(data) {
   return { blobtype: blobtype, extension: ext };
 }
 
-function notify(message) {
-  notification.innerHTML = 'Condition: ' + message;
-}
-
-function print(result) {
+function print(result, kind = 'info') {
   if (!result) {
     return;
   }
@@ -115,18 +74,18 @@ function print(result) {
     text = result;
   }
   else {
-    const textDecoder = new TextDecoder();
-    text = textDecoder.decode(result);
-    text = text.replace(worker.terminatorRead, '');
+    text = new TextDecoder().decode(result);
+    const terminator = worker.terminatorRead;
+    if (terminator && text.endsWith(terminator)) {
+      text = text.slice(0, -terminator.length);
+    }
   }
 
-  if (outputtextarea.value) {
-    outputtextarea.value = outputtextarea.value + '\n' + text;
-    outputtextarea.scrollTop;
-  }
-  else {
-    outputtextarea.value = text;
-  }
+  appendLog(log, kind, text);
+}
+
+function showTab(id) {
+  bootstrap.Tab.getOrCreateInstance($(id)).show();
 }
 
 function display(dir, result, name) {
@@ -140,7 +99,7 @@ function display(dir, result, name) {
     }
 
     const blob = new Blob([result], { type: tmp.blobtype });
-    const link = document.getElementById('image-link');
+    const link = $('image-link');
     let blobURL = link.href;
     window.URL.revokeObjectURL(blobURL);
     blobURL = window.URL.createObjectURL(blob);
@@ -148,16 +107,17 @@ function display(dir, result, name) {
     link.target = '_blank';
     link.download = name + '.' + tmp.extension;
 
-    const image = document.getElementById('image-field');
-    image.src = blobURL;
+    $('image-field').src = blobURL;
 
-    document.getElementById('image-area').classList.remove('d-none');
+    $('image-empty').classList.add('d-none');
+    $('image-area').classList.remove('d-none');
 
     print('Image data received');
+    showTab('image-tab');
   }
   else if (dir === OutputTo.Object) {
     let blob = new Blob([result], { type: 'octet/stream' });
-    const link = document.getElementById('file-link');
+    const link = $('file-link');
     let blobURL = link.href;
     window.URL.revokeObjectURL(blobURL);
     blobURL = window.URL.createObjectURL(blob);
@@ -165,230 +125,107 @@ function display(dir, result, name) {
     link.target = '_blank';
     link.download = name + '.bin';
 
-    document.getElementById('rcvd-length').innerHTML = result.byteLength + ' byte';
+    $('rcvd-length').textContent = result.byteLength + ' byte';
 
-    document.getElementById('object-area').classList.remove('d-none');
+    $('object-empty').classList.add('d-none');
+    $('object-area').classList.remove('d-none');
 
     print('Binary data received');
+    showTab('object-tab');
   }
   else {
-    print(result);
+    print(result, 'rx');
   }
 }
 
-connectButton.onclick = () => {
-  if (worker.opened) {
-    worker.close()
-      .catch((error) => {
-        alert(error);
-      })
-      .finally(() => {
-        connectButton.innerHTML = plugIcon + ' Connect';
-      });
-  } else {
-    const filters = [
-      { 'classCode': 0xFE, 'subclassCode': 0x03, 'protocolCode': 0x01 },
-    ];
-    navigator.usb.requestDevice({ 'filters': filters })
-      .then((device) => {
-        connectButton.innerHTML = spinnerWidget + ' Connecting..';
-        connectButton.disabled = true;
+const run = (button, operation) => runWithSpinner(button, operation, () => worker.opened);
 
-        worker.open(device)
-          .then(() => {
-            deviceName = worker.device.productName.replace(/\s/g, '');
-            connectButton.innerHTML = plugIcon + ' ' + deviceName + ' is connected';
-          })
-          .catch((error) => {
-            alert(error);
-            connectButton.innerHTML = plugIcon + ' Connect';
-          })
-          .finally(() => {
-            connectButton.disabled = false;
-          })
-      })
-      .catch((error) => {
-        alert(error);
-      });
-  }
-};
+setupConnectButton({
+  isOpen: () => worker.opened,
+  open: async (device) => {
+    await worker.open(device);
+    deviceName = worker.device.productName.replace(/\s/g, '');
+  },
+  close: () => worker.close(),
+});
 
-writeTransferDataButton.onclick = () => {
-  writeTransferType = TransferType.Normal;
-  writeWhich.innerHTML = 'Data';
-}
-
-writeTransferBinaryButton.onclick = () => {
-  writeTransferType = TransferType.Binary;
-  writeWhich.innerHTML = 'Binary Data';
-}
-
-writeButton.onclick = () => {
-  if (!worker.opened) {
-    return;
-  }
-
-  notify('');
-  writeButton.innerHTML = spinnerWidget + ' Write';
+writeButton.onclick = () => run(writeButton, async () => {
   const text = inputtext.value;
-  if (writeTransferType === TransferType.Binary && binaryFile !== undefined && binaryFile !== null) {
+  if ($('wr-type').value === 'binary' && binaryFile !== undefined && binaryFile !== null) {
     const buffer = new Uint8Array(binaryFile);
 
-    if (text === undefined || text === '') {
-      worker.writeBytes(buffer).then(() => {
-        print('Data chunk was sent successfully');
-        writeButton.innerHTML = 'Write';
-      }).catch((error) => {
-        notify(error);
-        writeButton.innerHTML = 'Write';
-      });
+    if (text === '') {
+      await worker.writeBytes(buffer);
+      print('Data chunk was sent successfully');
     }
     else {
-      worker.writeBlockData(text, buffer).then(() => {
-        print('Binary data was sent successfully');
-        writeButton.innerHTML = 'Write';
-      }).catch((error) => {
-        notify(error);
-        writeButton.innerHTML = 'Write';
-      });
+      await worker.writeBlockData(text, buffer);
+      print('Binary data was sent successfully');
     }
   }
   else {
-    if (text === undefined || text === '') {
-      notify('Text is empty');
-      writeButton.innerHTML = 'Write';
+    if (text === '') {
+      showError({ name: 'Empty', message: 'Enter a command first.' });
+      return;
     }
-    else {
-      worker.write(text).then(() => {
-        print(text);
-        writeButton.innerHTML = 'Write';
-      }).catch((error) => {
-        notify(error);
-        writeButton.innerHTML = 'Write';
-      });
-    }
+    await worker.write(text);
+    print(text, 'tx');
   }
-}
+});
 
-readTransferDataButton.onclick = () => {
-  readTransferType = TransferType.Normal;
-  readWhich.innerHTML = 'Data';
-}
-
-readTransferBinaryButton.onclick = () => {
-  readTransferType = TransferType.Binary;
-  readWhich.innerHTML = 'Binary Data';
-}
-
-readAsTextButton.onclick = () => {
-  readOutputTo = OutputTo.Text;
-  readAsHow.innerHTML = 'as Text';
-}
-
-readAsImageButton.onclick = () => {
-  readOutputTo = OutputTo.Image;
-  readAsHow.innerHTML = 'as Image';
-}
-
-readAsObjectButton.onclick = () => {
-  readOutputTo = OutputTo.Object;
-  readAsHow.innerHTML = 'as Object';
-}
-
-readButton.onclick = () => {
-  if (!worker.opened) {
-    return;
-  }
-
-  notify('');
-  readButton.innerHTML = spinnerWidget + ' Read';
-
-  if (readTransferType === TransferType.Binary) {
-    worker.readBlockData().then((result) => {
-      if (result.length == 0) {
-        print('Received an empty block');
-      }
-      else {
-        display(readOutputTo, result, deviceName);
-      }
-      readButton.innerHTML = 'Read';
-    }).catch((error) => {
-      notify(error);
-      readButton.innerHTML = 'Read';
-    });
+readButton.onclick = () => run(readButton, async () => {
+  let result;
+  if ($('rd-type').value === 'binary') {
+    result = await worker.readBlockData();
   }
   else {
-    let length = parseInt(readLength.value);
+    let length = parseInt($('rd-length').value);
     if (!(length > 0)) {
       length = 65535;
     }
-    worker.readBytes(length).then((result) => {
-      if (result.length == 0) {
-        print('Received an empty response');
-      }
-      else {
-        display(readOutputTo, result, deviceName);
-      }
-      readButton.innerHTML = 'Read';
-    }).catch((error) => {
-      notify(error);
-      readButton.innerHTML = 'Read';
-    });
-  }
-}
-
-
-rstatusButton.onclick = () => {
-  if (!worker.opened) {
-    return;
+    result = await worker.readBytes(length);
   }
 
-  notify('');
-  worker.readStatusByteRegister().then((result) => {
-    print('0x' + decimalToHex(result));
-  }).catch((error) => {
-    notify(error);
-  });
-}
-
-clearDeviceButton.onclick = () => {
-  if (!worker.opened) {
-    return;
+  if (result.length == 0) {
+    print('Received an empty response');
   }
+  else {
+    display($('rd-as').value, result, deviceName);
+  }
+});
 
-  notify('');
-  worker.clear().then(() => {
-    print('Cleared');
-  }).catch((error) => {
-    notify(error);
-  });
-}
+rstatusButton.onclick = () => run(rstatusButton, async () => {
+  const result = await worker.readStatusByteRegister();
+  print('Status byte 0x' + decimalToHex(result).toUpperCase(), 'rx');
+});
 
-writeFileButton.onclick = (e) => {
-  let file = e.target.files[0];
+clearDeviceButton.onclick = () => run(clearDeviceButton, async () => {
+  await worker.clear();
+  print('Device cleared');
+});
+
+writeFileButton.onchange = (e) => {
+  const file = e.target.files[0];
   if (file === undefined) {
     return;
   }
-  let reader = new FileReader();
-  reader.fileName = file.name;
+  const reader = new FileReader();
   reader.readAsArrayBuffer(file);
-  reader.onload = readerEvent => {
+  reader.onload = (readerEvent) => {
     binaryFile = readerEvent.target.result;
-    writeFileName.innerHTML = readerEvent.target.fileName;
-  }
-}
+  };
+};
 
 clearTextButton.onclick = () => {
-  outputtextarea.value = '';
+  log.innerHTML = '<div class="empty">Nothing yet. Connect, then write a command.</div>';
+};
+
+// The examples menu fills the command field.
+for (const item of $('command-group').getElementsByClassName('dropdown-item')) {
+  item.addEventListener('click', () => {
+    inputtext.value = item.textContent;
+    inputtext.focus();
+  });
 }
 
-window.onload = () => {
-  let targetElements = document.getElementById('command-group').getElementsByClassName('dropdown-item');
-
-  for (let element of targetElements) {
-    element.addEventListener('click', () => {
-      inputtext.value = element.innerHTML;
-    });
-  }
-
-};
+confirmLeaveWhileConnected(() => worker.opened);

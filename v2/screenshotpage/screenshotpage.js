@@ -1,24 +1,23 @@
 'use strict';
 
 import Takescreenshot from './takescreenshot.js';
+import { setupConnectButton, runWithSpinner, confirmLeaveWhileConnected, showMessage } from '../common/ui.js';
 
-let worker = new Takescreenshot();
+const worker = new Takescreenshot();
 
-const spinnerWidget = '<span class="spinner-border spinner-border-sm mr-2" role="status" aria-hidden="true"></span>';
-const plugIcon = '<i class="bi bi-plug"></i>';
-const cameraIcon = '<i class="bi bi-camera"></i>';
+const $ = (id) => document.getElementById(id);
 
-const connectButton = document.getElementById('connect-button');
-const takeashotButton = document.getElementById('takeashot-button');
+const takeashotButton = $('takeashot-button');
+const fetchDeviceInfoButton = $('fetchDeviceInfo-button');
 
-const fetchDeviceInfoButton = document.getElementById('fetchDeviceInfo-button');
+const inputCommandText = $('command-input');
+const delayTimeText = $('delay-input');
+const inputBinaryBlockCheck = $('binaryBlock-check');
+const yourDeviceTextarea = $('yourDevice-textarea');
 
-const inputCommandText = document.getElementById('command-input');
-const delayTimeText = document.getElementById('delay-input');
-const inputBinaryBlockCheck = document.getElementById('binaryBlock-check');
-const yourDeviceTextarea = document.getElementById('yourDevice-textarea');
-
-
+function hex(value) {
+  return Number(value).toString(16);
+}
 
 function checkMIMEType(data) {
   // https://stackoverflow.com/questions/18299806/how-to-check-file-mime-type-with-javascript-before-upload
@@ -56,120 +55,67 @@ function checkMIMEType(data) {
 }
 
 function display(bytes, name) {
+  if (!bytes || bytes.length === 0) {
+    showMessage('warn', 'No image was received.',
+      'Open the advanced settings and check the screenshot command and the wait time.');
+    return;
+  }
+
   const tmp = checkMIMEType(bytes);
 
   if (tmp.blobtype == 'unknown') {
-    alert("Failed to display: unknown blob type");
+    showMessage('warn', 'The instrument did not return an image.',
+      'Open the advanced settings and check the screenshot command and the binary block setting.');
+    return;
   }
 
   const blob = new Blob([bytes], { type: tmp.blobtype });
 
-  const reader = new FileReader();
-  reader.readAsDataURL(blob);
-  reader.onloadend = () => {
-    sessionStorage.setItem('image', reader.result);
-    const url = sessionStorage.getItem('image');
-    document.getElementById('screenshot-image').src = url;
-    document.getElementById('image-area').classList.remove('d-none');
-  }
+  const image = $('screenshot-image');
+  window.URL.revokeObjectURL(image.src);
+  image.src = window.URL.createObjectURL(blob);
+  image.classList.remove('d-none');
+  $('screen-empty').classList.add('d-none');
 
-  const donwloadLink = document.getElementById('download-link');
-  let blobURL = donwloadLink.href;
-  window.URL.revokeObjectURL(blobURL);
-  blobURL = window.URL.createObjectURL(blob);
-  donwloadLink.href = blobURL;
-  donwloadLink.target = '_blank';
-  donwloadLink.download = name + '.' + tmp.extension;
-
+  const downloadLink = $('download-link');
+  window.URL.revokeObjectURL(downloadLink.href);
+  downloadLink.href = window.URL.createObjectURL(blob);
+  downloadLink.target = '_blank';
+  downloadLink.download = name + '.' + tmp.extension;
+  downloadLink.classList.remove('disabled');
+  downloadLink.removeAttribute('aria-disabled');
 }
 
-connectButton.onclick = () => {
-  if (worker.opened) {
-    worker.close()
-      .catch((error) => {
-        alert(error);
-      })
-      .finally(() => {
-        connectButton.innerHTML = plugIcon + ' Connect';
-        takeashotButton.disabled = true;
-      });
-  } else {
-    const filters = [
-      { 'classCode': 0xFE, 'subclassCode': 0x03, 'protocolCode': 0x01 },
-    ];
-    navigator.usb.requestDevice({ 'filters': filters })
-      .then((device) => {
-        connectButton.innerHTML = spinnerWidget + ' Connecting..';
-        connectButton.disabled = true;
+setupConnectButton({
+  isOpen: () => worker.opened,
+  open: async (device) => {
+    await worker.open(device);
+    inputCommandText.value = worker.command;
+    delayTimeText.value = worker.delay;
+    inputBinaryBlockCheck.checked = worker.isBinaryBlock;
+    yourDeviceTextarea.value =
+      'VID_' + hex(device.vendorId) + ' ' + 'PID_' + hex(device.productId) + '\n';
+  },
+  close: () => worker.close(),
+});
 
-        worker.open(device)
-          .then(() => {
-            inputCommandText.value = worker.command;
-            delayTimeText.value = worker.delay;
-            inputBinaryBlockCheck.checked = worker.isBinaryBlock;
-            yourDeviceTextarea.value =
-              'VID_' + device.vendorId.toString(16) + ' ' + 'PID_' + device.productId.toString(16) + '\n';
-            const deviceName = worker.device.productName.replace(/\s/g, '');
-            connectButton.innerHTML = plugIcon + ' ' + deviceName + ' is connected';
-            takeashotButton.disabled = false;
-          })
-          .catch((error) => {
-            alert(error);
-            connectButton.innerHTML = plugIcon + ' Connect';
-            takeashotButton.disabled = true;
-          })
-          .finally(() => {
-            connectButton.disabled = false;
-            document.getElementById('help-area').classList.remove('d-none');
-          })
-      })
-      .catch((error) => {
-        alert(error);
-      });
+takeashotButton.onclick = () => runWithSpinner(takeashotButton, async () => {
+  // The settings are used only while the advanced settings are open.
+  if ($('advanced').open) {
+    worker.command = inputCommandText.value;
+    worker.delay = delayTimeText.value;
+    worker.isBinaryBlock = inputBinaryBlockCheck.checked;
   }
-};
 
+  const result = await worker.capture();
+  display(result, worker.device.productName.replace(/\s/g, ''));
+}, () => worker.opened);
 
-takeashotButton.onclick = () => {
-  if (worker.opened == true) {
-    takeashotButton.disabled = true;
-    takeashotButton.innerHTML = spinnerWidget + ' Take a screenshot';
+fetchDeviceInfoButton.onclick = () => runWithSpinner(fetchDeviceInfoButton, async () => {
+  const result = await worker.fetchDeviceInfo();
+  yourDeviceTextarea.value =
+    'VID_' + hex(worker.device.vendorId) + ' ' + 'PID_' + hex(worker.device.productId) + '\n' +
+    '*IDN? => ' + result;
+}, () => worker.opened);
 
-    const helpButton = document.getElementById('help-button');
-    const expanded = helpButton.getAttribute('aria-expanded');
-    if (expanded == 'true') {
-      worker.command = inputCommandText.value;
-      worker.delay = delayTimeText.value;
-      worker.isBinaryBlock = inputBinaryBlockCheck.checked;
-    }
-
-    worker.capture().then((reult) => {
-      takeashotButton.innerHTML = cameraIcon + ' Take a screenshot';
-      takeashotButton.disabled = false;
-      const deviceName = worker.device.productName.replace(/\s/g, '');
-      display(reult, deviceName)
-    }).catch((error) => {
-      takeashotButton.innerHTML = cameraIcon + ' Take a screenshot';
-      takeashotButton.disabled = false;
-      alert(error);
-    });
-  }
-};
-
-fetchDeviceInfoButton.onclick = () => {
-  if (worker.opened == true) {
-    worker.fetchDeviceInfo().then((reult) => {
-      yourDeviceTextarea.value =
-      'VID_' + worker.device.vendorId.toString(16) + ' ' + 'PID_' + worker.device.productId.toString(16) + '\n' +
-      '*IDN? => ' + reult;
-    }).catch((error) => {
-      alert(error);
-    });
-  }
-};
-
-window.onload = () => {
-  if (navigator.platform.indexOf('Win') >= 0) {
-    document.getElementById('windows-advice-text').classList.remove('d-none');
-  }
-};
+confirmLeaveWhileConnected(() => worker.opened);

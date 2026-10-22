@@ -1,12 +1,10 @@
 'use strict';
 
 import webusbtmc from '../webusbtmc/webusbtmc.js';
+import { setupConnectButton, confirmLeaveWhileConnected, showError, showMessage } from '../common/ui.js';
 
-var SpeechRecognition = SpeechRecognition || webkitSpeechRecognition
-var SpeechGrammarList = SpeechGrammarList || webkitSpeechGrammarList
-var SpeechRecognitionEvent = SpeechRecognitionEvent || webkitSpeechRecognitionEvent
-
-let recognition = new SpeechRecognition();
+const SpeechRecognition = window.SpeechRecognition || window.webkitSpeechRecognition;
+const recognition = SpeechRecognition ? new SpeechRecognition() : null;
 
 let isRecognizing = false;
 let isStopRecognizing = false;
@@ -15,10 +13,6 @@ let writeQueue = Promise.resolve();
 let lastText;
 let count = 0;
 
-const spinnerWidget = '<span class="spinner-border spinner-border-sm mr-2" role="status" aria-hidden="true"></span>';
-const plugIcon = '<i class="bi bi-plug"></i>';
-
-const connectButton = document.getElementById('connect-button');
 const recognitionButton = document.getElementById('recognition-button');
 const languageSelector = document.getElementById('language-selector');
 
@@ -33,42 +27,16 @@ const inputCommand2 = document.getElementById('input-command2');
 const inputCommand3 = document.getElementById('input-command3');
 
 
-connectButton.onclick = () => {
-  if (worker.opened) {
-    worker.close()
-      .catch((error) => {
-        alert(error);
-      })
-      .finally(() => {
-        connectButton.innerHTML = plugIcon + ' Connect';
-      });
-  } else {
-    const filters = [
-      { 'classCode': 0xFE, 'subclassCode': 0x03, 'protocolCode': 0x01 },
-    ];
-    navigator.usb.requestDevice({ 'filters': filters })
-      .then((device) => {
-        connectButton.innerHTML = spinnerWidget + ' Connecting..';
-        connectButton.disabled = true;
+setupConnectButton({
+  isOpen: () => worker.opened,
+  open: (device) => worker.open(device),
+  close: () => worker.close(),
+});
 
-        worker.open(device)
-          .then(() => {
-            const deviceName = worker.device.productName.replace(/\s/g, '');
-            connectButton.innerHTML = plugIcon + ' ' + deviceName + ' is connected';
-          })
-          .catch((error) => {
-            alert(error);
-            connectButton.innerHTML = plugIcon + ' Connect';
-          })
-          .finally(() => {
-            connectButton.disabled = false;
-          })
-      })
-      .catch((error) => {
-        alert(error);
-      });
-  }
-};
+if (!recognition) {
+  recognitionButton.disabled = true;
+  showMessage('err', 'Speech recognition is not available in this browser.', 'Use Chrome or Edge.');
+}
 
 recognitionButton.onclick = () => {
   if (!isRecognizing) {
@@ -212,14 +180,10 @@ function validateCommand(text) {
     writeQueue = writeQueue
       .then(() => worker.write(command))
       .catch((error) => {
-        alert(error);
+        showError(error);
       });
   }
 
 }
 
-window.onload = () => {
-  if (navigator.platform.indexOf('Win') >= 0) {
-    document.getElementById('windows-advice-text').classList.remove('d-none');
-  }
-};
+confirmLeaveWhileConnected(() => worker.opened);
