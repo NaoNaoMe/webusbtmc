@@ -26,15 +26,19 @@
 
     <main>
       <section class="card-lite panel">
-        <h2>Unlock a modular instrument</h2>
+        <h2>Switch a modular instrument to USBTMC mode</h2>
         <p>Keysight (or Agilent) U27xx modular instruments stay in “firmware update” mode when they are powered on.
-          This tool switches them to USBTMC mode, so that the other samples can use them.</p>
+          This tool switches them to USBTMC mode, so that the other samples can use them.
+          Do this each time the instrument is powered on.</p>
         <ol class="mb-3">
           <li>Connect the instrument with a USB cable.</li>
-          <li>Press <b>Unlock</b> and choose the instrument in the dialog of the browser.</li>
-          <li>The instrument restarts. Then use it from the other samples.</li>
+          <li>Press <b>Switch to USBTMC mode</b> and choose the instrument in the dialog of the browser.
+            Only Keysight (Agilent) instruments are listed.</li>
+          <li>The instrument restarts and appears as a new USB device. Wait a few seconds, then use it from the other samples.</li>
         </ol>
-        <button class="btn btn-primary" type="button" id="unlock"><i class="bi bi-unlock me-1"></i>Unlock</button>
+        <button class="btn btn-primary" type="button" id="unlock"><i class="bi bi-arrow-repeat me-1"></i>Switch to USBTMC mode</button>
+        <p class="note mt-3 mb-0">On Windows the instrument may need the WinUSB driver in both modes: after the restart it
+          is a different USB device (see the setup guide below).</p>
       </section>
     </main>
 
