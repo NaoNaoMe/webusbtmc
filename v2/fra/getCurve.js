@@ -76,7 +76,7 @@ class GetCurve {
 
   async fetch_tektronix() {
     if(this.#isBusy) {
-      return { data_ch1: [], data_ch2: [], length: NaN, rate: NaN };
+      return { data_ch1: [], data_ch2: [], length: NaN, rate: NaN, reason: 'busy' };
     }
 
     this.#isBusy = true;
@@ -144,7 +144,7 @@ class GetCurve {
     }
 
     if(data_ch1.length !== data_ch2.length) {
-      return { data_ch1: [], data_ch2: [], length: NaN, rate: NaN };
+      return { data_ch1: [], data_ch2: [], length: NaN, rate: NaN, reason: 'length-mismatch' };
     }
 
     return { data_ch1: data_ch1, data_ch2: data_ch2, length: data_ch1.length, rate: rate };
@@ -153,7 +153,7 @@ class GetCurve {
   async fetch_keysight() {
 
     if(this.#isBusy) {
-      return { data_ch1: [], data_ch2: [], length: NaN, rate: NaN };
+      return { data_ch1: [], data_ch2: [], length: NaN, rate: NaN, reason: 'busy' };
     }
 
     this.#isBusy = true;
@@ -173,7 +173,7 @@ class GetCurve {
 
       await this.#tmc.write(':RUN');
 
-      return { data_ch1: result.data_ch1, data_ch2: result.data_ch2, length: result.data_ch1.length, rate: result.rate };
+      return { data_ch1: result.data_ch1, data_ch2: result.data_ch2, length: result.data_ch1.length, rate: result.rate, reason: result.reason };
     } finally {
       this.#isBusy = false;
     }
@@ -200,7 +200,7 @@ class GetCurve {
     tmp = await this.#tmc.read();
 
     if (tmp === '+0') {
-      return { data_ch1: [], data_ch2: [], length: NaN, rate: NaN };
+      return { data_ch1: [], data_ch2: [], length: NaN, rate: NaN, reason: 'no-waveform' };
     }
 
     preamble = this.ReadList(tmp);
@@ -220,7 +220,7 @@ class GetCurve {
 
     if (intFormat !== 0.0) {
       await this.#tmc.write(':WAV:FORM BYTE');
-      return { data_ch1: [], data_ch2: [], length: NaN, rate: NaN };
+      return { data_ch1: [], data_ch2: [], length: NaN, rate: NaN, reason: 'format-changed' };
     }
 
     rate = 1/dblXIncrement;
@@ -245,7 +245,7 @@ class GetCurve {
     tmp = await this.#tmc.read();
 
     if (tmp === '+0') {
-      return { data_ch1: [], data_ch2: [], length: NaN, rate: NaN };
+      return { data_ch1: [], data_ch2: [], length: NaN, rate: NaN, reason: 'no-waveform' };
     }
 
     preamble = this.ReadList(tmp);
@@ -278,7 +278,7 @@ class GetCurve {
     }
 
     if(data_ch1.length !== data_ch2.length) {
-      return { data_ch1: [], data_ch2: [], length: NaN, rate: NaN };
+      return { data_ch1: [], data_ch2: [], length: NaN, rate: NaN, reason: 'length-mismatch' };
     }
 
     return { data_ch1: data_ch1, data_ch2: data_ch2, length: data_ch1.length, rate: rate };

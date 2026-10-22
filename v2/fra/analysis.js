@@ -1,144 +1,95 @@
+const HYSTERESIS = 0.25;   // of the amplitude
+
 function removeOffset(wave) {
-    // Calculate the mean of the wave data
     const mean = wave.reduce((acc, val) => acc + val, 0) / wave.length;
-    
-    // Subtract the mean from each data point to remove the offset
-    const correctedWave = wave.map(val => val - mean);
-    
-    return correctedWave;
+    return wave.map(val => val - mean);
 }
 
 function calculateMedian(values) {
     if (values.length === 0) return 0;
-    values.sort((a, b) => a - b);
-    let half = Math.floor(values.length / 2);
-    if (values.length % 2) {
-        return values[half];
-    } else {
-        return (values[half - 1] + values[half]) / 2.0;
-    }
+    const sorted = [...values].sort((a, b) => a - b);
+    const half = Math.floor(sorted.length / 2);
+    return sorted.length % 2 ? sorted[half] : (sorted[half - 1] + sorted[half]) / 2.0;
 }
 
-function averagePairs(values) {
-    let result = [];
-    let length = values.length;
-    length = length % 2 !== 0 ? length - 1 : length;
-
-    for (let i = 0; i < length; i += 2) {
-        let pairSum = values[i];
-        pairSum += values[i + 1];
-        let pairAverage = pairSum / 2;
-        result.push(pairAverage);
+// Positions (in samples, fractions allowed) where the wave crosses zero going up.
+// The position between two samples comes from a straight line through them.
+// A crossing counts only after the wave has been below -threshold and then rises above +threshold,
+// so noise around zero does not make extra crossings.
+function findRisingZeroCrossings(wave) {
+    const amplitude = (Math.max(...wave) - Math.min(...wave)) / 2;
+    const threshold = HYSTERESIS * amplitude;
+    const crossings = [];
+    let armed = false;
+    let lastBelowZero = -1;   // the last sample that was at or below zero
+    for (let i = 0; i < wave.length; i++) {
+        if (wave[i] <= 0) lastBelowZero = i;
+        if (wave[i] < -threshold) {
+            armed = true;
+        } else if (armed && wave[i] > threshold) {
+            const j = lastBelowZero;   // wave[j] <= 0 and wave[j + 1] > 0
+            crossings.push(j + (0 - wave[j]) / (wave[j + 1] - wave[j]));
+            armed = false;
+        }
     }
-
-    return result;
+    return crossings;
 }
 
-function findPhaseDifference(waveA, waveB, ts) {
-    // Check if both waveforms have the same length
+/**
+ * Gain, frequency and phase of waveB relative to waveA (both sampled every `ts` seconds).
+ * Returns { gain, freq, phase_rad, periodCount, periodSpread }. Everything is NaN when the waves
+ * differ in length.
+ *
+ * 1. The frequency comes from the rising zero crossings of waveA: the number of periods between the
+ *    first and the last crossing, divided by the time between them.
+ * 2. Over those whole periods, each wave is multiplied by cos and sin of that frequency and summed
+ *    (a DFT of one frequency, like a lock-in amplifier). The gain is the ratio of the two sizes,
+ *    the phase is the difference of the two angles. Noise and harmonics mostly cancel in the sums,
+ *    and the phase is not limited to whole samples.
+ * periodSpread (the periods differ a little for a sine wave, a lot for noise) tells a steady sine
+ * wave from noise.
+ */
+export function findPhaseDifference(waveA, waveB, ts) {
     if (waveA.length !== waveB.length) {
         return { gain: NaN, freq: NaN, phase_rad: NaN };
     }
 
-    waveA = removeOffset(waveA);
-    waveB = removeOffset(waveB);
+    const a = removeOffset(waveA);
+    const b = removeOffset(waveB);
 
-    // Initialize arrays to store amplitudes and periods
-    let waveA_amplitudes = [];
-    let waveB_amplitudes = [];
-    let periods = [];
-    let phaseDifferences = [];
-    const length = waveA.length;
-
-    // Initialize variables for zero-crossing detection and RMS calculation
-    let waveA_polarity = 0;
-    let prevWaveA_polarity = 0;
-
-    let waveB_polarity = 0;
-    let prevWaveB_polarity = 0;
-
-    let found_zeroCrossing = false;
-
-    let waveA_sumSquares_P = 0;
-    let waveB_sumSquares_P = 0;
-    let periodCounter = 0;
-    let phaseCounter = 0;
-
-    for (let i = 0; i < length; i++) {
-        // Determine current polarity of waveA
-        prevWaveA_polarity = waveA_polarity;
-        waveA_polarity = (waveA[i] > 0) ? 1 : -1;
-
-        // Determine current polarity of waveB
-        prevWaveB_polarity = waveB_polarity;
-        waveB_polarity = (waveB[i] > 0) ? 1 : -1;
-
-
-        // Detect zero-crossings of waveA to calculate periods and amplitudes
-        let waveA_zeroCrossing = 0;
-        if ((waveA_polarity + prevWaveA_polarity) === 0) {
-            if (waveA_polarity === 1) {
-                waveA_zeroCrossing = 1; // positive edge
-            } else {
-                waveA_zeroCrossing = -1; // negative edge
-            }
-        }
-
-        if(!found_zeroCrossing) {
-            if(waveA_zeroCrossing === 1) {
-                found_zeroCrossing = true;
-            }
-            else {
-                continue;
-            }
-        }
-
-        // Count phase differences between waveA and waveB
-        if (waveA_polarity * waveB_polarity < 0) {
-            phaseCounter++;
-        } else {
-            if (phaseCounter > 0) {
-                if (waveA_polarity * prevWaveA_polarity > 0) {
-                    phaseDifferences.push(-phaseCounter);
-                } else if (waveB_polarity * prevWaveB_polarity > 0) {
-                    phaseDifferences.push(phaseCounter);
-                }
-            }
-            phaseCounter = 0;
-        }
-
-        // On zero-crossing of waveA, calculate RMS and reset counters
-        if (waveA_zeroCrossing === 1 && periodCounter > 0) {
-            waveA_amplitudes.push(Math.sqrt(waveA_sumSquares_P / periodCounter));
-            waveB_amplitudes.push(Math.sqrt(waveB_sumSquares_P / periodCounter));
-            periods.push(periodCounter);
-            waveA_sumSquares_P = 0;
-            waveB_sumSquares_P = 0;
-            periodCounter = 0;
-        }
-
-        // Accumulate squares of waveform values for RMS calculation
-        waveA_sumSquares_P += waveA[i] * waveA[i];
-        waveB_sumSquares_P += waveB[i] * waveB[i];
-        periodCounter++;
-
+    const crossings = findRisingZeroCrossings(a);
+    const periods = crossings.slice(1).map((position, i) => position - crossings[i]);
+    if (periods.length === 0) {
+        return { gain: NaN, freq: Infinity, phase_rad: NaN, periodCount: 0, periodSpread: Infinity };
     }
 
-    // Calculate median values for amplitude, period, and phase difference
-    const waveA_ampl = calculateMedian(waveA_amplitudes);
-    const waveB_ampl = calculateMedian(waveB_amplitudes);
-    const gain = waveB_ampl / waveA_ampl;
-    
-    periodCounter = calculateMedian(periods);
-    const freq = 1 / (periodCounter * ts);
+    const first = crossings[0];
+    const last = crossings[crossings.length - 1];
+    const freq = periods.length / ((last - first) * ts);
 
-    // Calculating the average of the counts measured on the positive polarity side and the negative polarity side of the sine wave.
-    phaseDifferences = averagePairs(phaseDifferences);
+    // Whole periods only, so the sums do not leak. The mean is taken again over the same samples.
+    const start = Math.ceil(first);
+    const end = Math.ceil(last);
+    const omega = 2 * Math.PI * freq * ts;   // radians per sample
+    const lockIn = (wave) => {
+        let sum = 0;
+        for (let i = start; i < end; i++) sum += wave[i];
+        const mean = sum / (end - start);
+        let cos = 0;
+        let sin = 0;
+        for (let i = start; i < end; i++) {
+            cos += (wave[i] - mean) * Math.cos(omega * i);
+            sin += (wave[i] - mean) * Math.sin(omega * i);
+        }
+        return { cos, sin };
+    };
+    const A = lockIn(a);
+    const B = lockIn(b);
 
-    phaseCounter = calculateMedian(phaseDifferences);
-    const phase_time = phaseCounter * ts;
-    const phase_rad = (2 * Math.PI * freq) * phase_time;
+    const gain = Math.hypot(B.cos, B.sin) / Math.hypot(A.cos, A.sin);
+    const phase_rad = Math.atan2(B.cos * A.sin - B.sin * A.cos, B.cos * A.cos + B.sin * A.sin);
 
-    // Return calculated values
-    return { gain: gain, freq: freq, phase_rad: phase_rad };
+    const periodSpread = (Math.max(...periods) - Math.min(...periods)) / calculateMedian(periods);
+
+    return { gain: gain, freq: freq, phase_rad: phase_rad, periodCount: periods.length, periodSpread: periodSpread };
 }

@@ -57,8 +57,9 @@ This tool is particularly useful for analyzing the frequency response of systems
 - `await using tmc = new Webusbtmc()` closes the device when the runtime supports it.
 
 ## Tests
-The driver is tested against a fake `USBDevice` (Node.js 20 or later):
+The driver is tested against a fake `USBDevice`, and the frequency response analysis with synthetic waves (Node.js 20 or later):
 
 ~~~
-node --test v2/test/webusbtmc.test.js
+cd v2
+node --test
 ~~~
