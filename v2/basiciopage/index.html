@@ -44,7 +44,7 @@
         <label class="field-label" for="input-text">SCPI command</label>
         <div class="input-group mb-3">
           <input type="text" class="form-control mono" placeholder="Select or enter a command" id="input-text"
-            autocomplete="off" spellcheck="false">
+            autocomplete="off" autocapitalize="off" autocorrect="off" spellcheck="false">
           <button class="btn btn-outline-secondary dropdown-toggle" type="button" data-bs-toggle="dropdown"
             aria-expanded="false">Examples</button>
           <ul class="dropdown-menu dropdown-menu-end" id="command-group">
@@ -73,8 +73,8 @@
           <button type="button" class="btn btn-outline-secondary" id="rstatus-button" data-needs-connection disabled>Status byte</button>
           <button type="button" class="btn btn-outline-secondary" id="clear-button" data-needs-connection disabled>Device clear</button>
         </div>
-        <p class="note">Write sends the command. Read fetches the answer. A command that ends with
-          <span class="mono">?</span> produces an answer.</p>
+        <p class="note">Write sends the command. Read fetches the answer. Only a query (the command name is
+          followed by <span class="mono">?</span>) produces an answer. Press ↑ in the command field to recall earlier commands.</p>
 
         <details>
           <summary class="field-label">Transfer options</summary>
@@ -85,6 +85,7 @@
                 <option value="data" selected>Text</option>
                 <option value="binary">Binary data (block)</option>
               </select>
+              <div class="form-text">Binary: the selected file is sent after the command as a block (<span class="mono">#…</span>).</div>
             </div>
             <div class="col-12 col-sm-6">
               <label class="field-label" for="wr-filebutton">File to send</label>
@@ -94,19 +95,31 @@
               <label class="field-label" for="rd-type">Read as</label>
               <select class="form-select" id="rd-type">
                 <option value="data" selected>Text / raw bytes</option>
-                <option value="binary">Binary data (block)</option>
+                <option value="binary">Binary block (starts with #)</option>
               </select>
+              <div class="form-text">Use the binary block for answers that start with <span class="mono">#</span>, such as screen images.</div>
             </div>
             <div class="col-12 col-sm-6">
               <label class="field-label" for="rd-length">Bytes to read</label>
               <input type="text" inputmode="numeric" class="form-control mono" id="rd-length" placeholder="65535">
+            </div>
+            <div class="col-12 col-sm-6">
+              <label class="field-label" for="rd-timeout">Timeout</label>
+              <select class="form-select" id="rd-timeout">
+                <option value="1000">1 second</option>
+                <option value="5000" selected>5 seconds</option>
+                <option value="10000">10 seconds</option>
+                <option value="30000">30 seconds</option>
+                <option value="60000">60 seconds</option>
+              </select>
+              <div class="form-text">How long Read waits for the instrument.</div>
             </div>
             <div class="col-12">
               <label class="field-label" for="rd-as">Show the result as</label>
               <select class="form-select" id="rd-as">
                 <option value="text" selected>Text</option>
                 <option value="image">Image</option>
-                <option value="object">Downloadable file</option>
+                <option value="object">File (download)</option>
               </select>
             </div>
           </div>
@@ -116,7 +129,10 @@
       <section class="card-lite panel">
         <div class="d-flex align-items-center justify-content-between mb-2">
           <h2 class="mb-0">Output</h2>
-          <button class="btn btn-sm btn-outline-secondary" type="button" id="clear-text-button" style="min-height: 32px">Clear log</button>
+          <div class="btn-group">
+            <button class="btn btn-sm btn-outline-secondary" type="button" id="copy-log-button" style="min-height: 32px">Copy</button>
+            <button class="btn btn-sm btn-outline-secondary" type="button" id="clear-text-button" style="min-height: 32px">Clear log</button>
+          </div>
         </div>
         <ul class="nav nav-tabs mb-3" role="tablist">
           <li class="nav-item" role="presentation">
@@ -143,7 +159,7 @@
             </div>
           </div>
           <div class="tab-pane fade" id="object-pane" role="tabpanel" aria-labelledby="object-tab" tabindex="0">
-            <p class="note" id="object-empty">No file received yet. Choose “Downloadable file” under Transfer options, then Read.</p>
+            <p class="note" id="object-empty">No file received yet. Choose “File (download)” under Transfer options, then Read.</p>
             <div class="d-none" id="object-area">
               <output id="rcvd-length"></output>
               <a href="#" id="file-link" class="ms-2">Download</a>
@@ -164,17 +180,29 @@
     <ol>
       <li><strong>Connect.</strong> Press <b>Connect</b> and choose your instrument in the dialog of the browser.</li>
       <li><strong>Write.</strong> Type a command, or pick one under <b>Examples</b>, and press <b>Write</b>.</li>
-      <li><strong>Read.</strong> Press <b>Read</b> to fetch the answer. Only a command that ends with <code>?</code> produces an answer.</li>
+      <li><strong>Read.</strong> Press <b>Read</b> to fetch the answer. Only a query (the command name is followed by <code>?</code>, for example <code>*IDN?</code>) produces an answer.</li>
     </ol>
     <h6>Other buttons</h6>
     <ul>
-      <li><b>Status byte</b> reads the status byte of the instrument.</li>
+      <li><b>Status byte</b> reads the status byte of the instrument and names the bits that are set (see below).</li>
       <li><b>Device clear</b> resets the communication with the instrument. Use it when the answers stop coming.</li>
     </ul>
+    <h6>Status byte</h6>
+    <ul>
+      <li><b>MAV</b> (bit 4): the instrument has an answer to read.</li>
+      <li><b>ESB</b> (bit 5): an event is recorded in the standard event status register, for example an error. Read it with <code>*ESR?</code>.</li>
+      <li><b>MSS</b> (bit 6): the instrument requests service.</li>
+      <li><b>EAV</b> (bit 2): the error queue has entries. Read them with <code>:SYSTem:ERRor?</code>.</li>
+      <li><b>QSB</b> (bit 3) and <b>OSB</b> (bit 7): summary of the questionable and the operation status.</li>
+      <li>Other bits depend on the instrument and are shown as “bit 0” and so on.</li>
+    </ul>
     <h6>Transfer options</h6>
-    <p>Open <b>Transfer options</b> to read binary data, to show the result as an image or as a downloadable file, or to send a file.</p>
+    <p>Open <b>Transfer options</b> to read binary data, to show the result as an image or as a file, to send a file, or to change the timeout of Read.</p>
     <h6>Tips</h6>
-    <p>If Read reports that there was no answer, write a query first. The connection can still be used.</p>
+    <ul>
+      <li>If Read reports that there was no answer, write a query first, or raise the timeout if the instrument is slow. The connection can still be used.</li>
+      <li>The log can be copied with <b>Copy</b>. Each line has the time it was written.</li>
+    </ul>
   </template>
 
   <script src="https://cdn.jsdelivr.net/npm/@popperjs/core@2.11.8/dist/umd/popper.min.js"

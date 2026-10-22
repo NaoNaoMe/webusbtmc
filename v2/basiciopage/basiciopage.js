@@ -1,7 +1,7 @@
 'use strict';
 
 import Webusbtmc from '../webusbtmc/webusbtmc.js';
-import { setupConnectButton, runWithSpinner, confirmLeaveWhileConnected, setupHowTo, showError, appendLog } from '../common/ui.js';
+import { setupConnectButton, runWithSpinner, confirmLeaveWhileConnected, setupHowTo, showError, showMessage, appendLog, logText } from '../common/ui.js';
 
 const worker = new Webusbtmc();
 
@@ -24,6 +24,24 @@ const rstatusButton = $('rstatus-button');
 const clearDeviceButton = $('clear-button');
 const writeFileButton = $('wr-filebutton');
 const clearTextButton = $('clear-text-button');
+const copyLogButton = $('copy-log-button');
+
+// Names of the bits of the IEEE 488.2 / SCPI status byte. The other bits depend on the instrument.
+const STATUS_BITS = { 7: 'OSB', 6: 'MSS', 5: 'ESB', 4: 'MAV', 3: 'QSB', 2: 'EAV' };
+
+function describeStatusByte(value) {
+  const names = [];
+  for (let bit = 7; bit >= 0; bit--) {
+    if (value & (1 << bit)) {
+      names.push(STATUS_BITS[bit] || 'bit ' + bit);
+    }
+  }
+  return names.length > 0 ? names.join(', ') : 'no bits set';
+}
+
+// Commands that were sent, for the up and down keys of the command field.
+const history = [];
+let historyIndex = 0;
 
 function decimalToHex(d, padding = 2) {
   return Number(d).toString(16).padStart(padding, '0');
@@ -170,20 +188,25 @@ writeButton.onclick = () => run(writeButton, async () => {
     }
     await worker.write(text);
     print(text, 'tx');
+    if (history[history.length - 1] !== text) {
+      history.push(text);
+    }
+    historyIndex = history.length;
   }
 });
 
 readButton.onclick = () => run(readButton, async () => {
+  const timeout = parseInt($('rd-timeout').value);
   let result;
   if ($('rd-type').value === 'binary') {
-    result = await worker.readBlockData();
+    result = await worker.readBlockData(timeout);
   }
   else {
     let length = parseInt($('rd-length').value);
     if (!(length > 0)) {
       length = 65535;
     }
-    result = await worker.readBytes(length);
+    result = await worker.readBytes(length, timeout);
   }
 
   if (result.length == 0) {
@@ -196,7 +219,7 @@ readButton.onclick = () => run(readButton, async () => {
 
 rstatusButton.onclick = () => run(rstatusButton, async () => {
   const result = await worker.readStatusByteRegister();
-  print('Status byte 0x' + decimalToHex(result).toUpperCase(), 'rx');
+  print('Status byte 0x' + decimalToHex(result).toUpperCase() + ' (' + describeStatusByte(result) + ')', 'rx');
 });
 
 clearDeviceButton.onclick = () => run(clearDeviceButton, async () => {
@@ -219,6 +242,26 @@ writeFileButton.onchange = (e) => {
 clearTextButton.onclick = () => {
   log.innerHTML = '<div class="empty">Nothing yet. Connect, then write a command.</div>';
 };
+
+copyLogButton.onclick = async () => {
+  try {
+    await navigator.clipboard.writeText(logText(log));
+    copyLogButton.textContent = 'Copied';
+    setTimeout(() => { copyLogButton.textContent = 'Copy'; }, 1500);
+  } catch (error) {
+    showMessage('warn', 'Could not copy to the clipboard.');
+  }
+};
+
+// Up and down keys in the command field recall the commands that were sent.
+inputtext.addEventListener('keydown', (event) => {
+  if ((event.key !== 'ArrowUp' && event.key !== 'ArrowDown') || history.length === 0) {
+    return;
+  }
+  event.preventDefault();
+  historyIndex = Math.max(0, Math.min(history.length, historyIndex + (event.key === 'ArrowUp' ? -1 : 1)));
+  inputtext.value = history[historyIndex] || '';
+});
 
 // The examples menu fills the command field.
 for (const item of $('command-group').getElementsByClassName('dropdown-item')) {

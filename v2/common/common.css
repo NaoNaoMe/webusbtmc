@@ -125,6 +125,11 @@ h1, h2, h3 { text-wrap: balance; }
 .form-check-input:checked { background-color: var(--accent); border-color: var(--accent); }
 .field-label { font-size: 13px; color: var(--muted); font-weight: 600; margin-bottom: 4px; display: block; }
 [disabled] { cursor: not-allowed; }
+/* A button that cannot be used yet is grey. One that is working (aria-busy) keeps its colour. */
+.btn-primary:disabled:not([aria-busy]) {
+  --bs-btn-disabled-bg: var(--surface-2); --bs-btn-disabled-border-color: var(--line); --bs-btn-disabled-color: var(--muted);
+  --bs-btn-disabled-opacity: 1;
+}
 
 /* Page frame */
 .app { max-width: 1040px; margin-inline: auto; container-type: inline-size; }
@@ -176,7 +181,8 @@ h1, h2, h3 { text-wrap: balance; }
   font-family: var(--font-mono); font-size: 13px; background: var(--surface-2); border: 1px solid var(--line); border-radius: 8px;
   height: 280px; overflow: auto; padding: 8px 10px; white-space: pre-wrap; overflow-wrap: anywhere;
 }
-.log .ln { display: grid; grid-template-columns: 16px 1fr; gap: 6px; padding: 1px 0; }
+.log .ln { display: grid; grid-template-columns: auto 16px 1fr; gap: 6px; padding: 1px 0; }
+.log .time { color: var(--muted); font-variant-numeric: tabular-nums; }
 .log .tx { color: var(--accent); }
 .log .info { color: var(--muted); }
 .log .empty { color: var(--muted); font-family: var(--font-ui); }
