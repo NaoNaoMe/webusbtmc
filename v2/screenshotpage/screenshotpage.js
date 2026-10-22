@@ -1,7 +1,7 @@
 'use strict';
 
 import Takescreenshot from './takescreenshot.js';
-import { setupConnectButton, runWithSpinner, confirmLeaveWhileConnected, showMessage } from '../common/ui.js';
+import { setupConnectButton, runWithSpinner, confirmLeaveWhileConnected, setupHowTo, showMessage } from '../common/ui.js';
 
 const worker = new Takescreenshot();
 
@@ -119,3 +119,4 @@ fetchDeviceInfoButton.onclick = () => runWithSpinner(fetchDeviceInfoButton, asyn
 }, () => worker.opened);
 
 confirmLeaveWhileConnected(() => worker.opened);
+setupHowTo();

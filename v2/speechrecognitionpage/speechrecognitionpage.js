@@ -1,7 +1,7 @@
 'use strict';
 
 import webusbtmc from '../webusbtmc/webusbtmc.js';
-import { setupConnectButton, confirmLeaveWhileConnected, showError, showMessage } from '../common/ui.js';
+import { setupConnectButton, confirmLeaveWhileConnected, setupHowTo, showError, showMessage } from '../common/ui.js';
 
 const SpeechRecognition = window.SpeechRecognition || window.webkitSpeechRecognition;
 const recognition = SpeechRecognition ? new SpeechRecognition() : null;
@@ -187,3 +187,4 @@ function validateCommand(text) {
 }
 
 confirmLeaveWhileConnected(() => worker.opened);
+setupHowTo();

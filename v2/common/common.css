@@ -144,6 +144,10 @@ h1, h2, h3 { text-wrap: balance; }
 @container (min-width: 760px) { .grid2 { grid-template-columns: minmax(0, 1fr) minmax(0, 1fr); } }
 .row-actions { display: flex; flex-wrap: wrap; gap: 8px; }
 
+/* Dialogs */
+.modal-content { background: var(--surface); border-color: var(--line); }
+.modal-header, .modal-footer { border-color: var(--line); }
+
 /* Connection bar */
 .conn { display: flex; flex-wrap: wrap; align-items: center; gap: 10px 16px; padding: 12px 14px; margin-block: 6px 12px; }
 .conn .info { display: flex; align-items: center; gap: 10px; flex: 1 1 220px; min-width: 0; }

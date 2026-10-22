@@ -30,6 +30,9 @@
           <div class="sub" id="conn-sub">Connect an instrument with a USB cable.</div>
         </div>
       </div>
+      <button type="button" class="btn btn-outline-secondary" id="howto-button">
+        <i class="bi bi-info-circle me-1"></i>How to use
+      </button>
       <button class="btn btn-primary" type="button" id="connect-button">Connect</button>
     </section>
 
@@ -179,6 +182,21 @@
       <a href="../../v1/speechrecognitionpage/">Previous version (v1)</a>
     </footer>
   </div>
+
+  <template id="howto-body" data-title="How to use Speech control">
+    <p>Send commands to an instrument by voice.</p>
+    <ol>
+      <li><strong>Connect.</strong> Press <b>Connect</b> and choose your instrument in the dialog of the browser.</li>
+      <li><strong>Register.</strong> Enter a keyword and the command to send when the keyword is heard. Up to three pairs.</li>
+      <li><strong>Listen.</strong> Choose the language and press <b>Start speech recognition</b>.</li>
+      <li><strong>Speak.</strong> Say a keyword. Its command is sent to the instrument.</li>
+    </ol>
+    <h6>Notes</h6>
+    <ul>
+      <li>Speech recognition needs a browser that supports it, such as Chrome or Edge.</li>
+      <li>If several keywords are heard in one phrase, the one heard last is used.</li>
+    </ul>
+  </template>
 
   <script src="https://cdn.jsdelivr.net/npm/@popperjs/core@2.11.8/dist/umd/popper.min.js"
     integrity="sha256-whL0tQWoY1Ku1iskqPFvmZ+CHsvmRWx/PIoEvIeWh4I=" crossorigin="anonymous"></script>

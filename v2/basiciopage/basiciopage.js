@@ -1,7 +1,7 @@
 'use strict';
 
 import Webusbtmc from '../webusbtmc/webusbtmc.js';
-import { setupConnectButton, runWithSpinner, confirmLeaveWhileConnected, showError, appendLog } from '../common/ui.js';
+import { setupConnectButton, runWithSpinner, confirmLeaveWhileConnected, setupHowTo, showError, appendLog } from '../common/ui.js';
 
 const worker = new Webusbtmc();
 
@@ -229,3 +229,4 @@ for (const item of $('command-group').getElementsByClassName('dropdown-item')) {
 }
 
 confirmLeaveWhileConnected(() => worker.opened);
+setupHowTo();

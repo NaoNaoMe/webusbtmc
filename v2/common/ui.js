@@ -204,3 +204,36 @@ export function confirmLeaveWhileConnected(isOpen) {
     }
   });
 }
+
+/**
+ * "How to use" dialog. The page provides
+ *   <button id="howto-button">  and  <template id="howto-body" data-title="...">the text</template>.
+ */
+export function setupHowTo() {
+  const template = $('howto-body');
+  const button = $('howto-button');
+  if (!template || !button) {
+    return;
+  }
+
+  const modal = document.createElement('div');
+  modal.className = 'modal fade';
+  modal.id = 'howto-modal';
+  modal.tabIndex = -1;
+  modal.setAttribute('aria-labelledby', 'howto-title');
+  modal.setAttribute('aria-hidden', 'true');
+  modal.innerHTML =
+    '<div class="modal-dialog modal-lg modal-dialog-centered modal-dialog-scrollable modal-fullscreen-sm-down">' +
+    '<div class="modal-content">' +
+    '<div class="modal-header"><h5 class="modal-title" id="howto-title"></h5>' +
+    '<button type="button" class="btn-close" data-bs-dismiss="modal" aria-label="Close"></button></div>' +
+    '<div class="modal-body"></div>' +
+    '<div class="modal-footer"><button type="button" class="btn btn-primary" data-bs-dismiss="modal">OK</button></div>' +
+    '</div></div>';
+  modal.querySelector('.modal-title').textContent = template.dataset.title || 'How to use';
+  modal.querySelector('.modal-body').append(template.content.cloneNode(true));
+  document.body.append(modal);
+
+  button.setAttribute('data-bs-toggle', 'modal');
+  button.setAttribute('data-bs-target', '#howto-modal');
+}
