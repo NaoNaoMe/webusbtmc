@@ -183,6 +183,40 @@ test('open: twice is rejected', async () => {
   await assert.rejects(tmc.open(device), UsbtmcError);
 });
 
+test('open: an answer that an earlier session left in the instrument is thrown away', async () => {
+  // Found on a real instrument (U2741A): the first query of the next session got the old answer, with
+  // another bTag, and the answer of every query after it came one query too late.
+  const device = new FakeDevice();
+  device.inQueue.push(inMessage(6, text('old\n')));   // waiting before the session starts
+  const tmc = new Webusbtmc();
+  await tmc.open(device);
+
+  device.onRequest = (tag) => packets(inMessage(tag, text('KEYSIGHT\n')), 64);
+  assert.equal(await tmc.query('*IDN?'), 'KEYSIGHT');
+  assert.equal(await tmc.query('*IDN?'), 'KEYSIGHT');
+});
+
+test('open: several old messages, one of them of several packets, are all thrown away', async () => {
+  const device = new FakeDevice();
+  device.inQueue.push(inMessage(3, text('old\n')));
+  device.inQueue.push(...packets(inMessage(9, new Uint8Array(100).fill(66)), 64));
+  const tmc = new Webusbtmc();
+  await tmc.open(device);
+
+  device.onRequest = (tag) => packets(inMessage(tag, text('OK\n')), 64);
+  assert.equal(await tmc.query('*OPC?'), 'OK');
+});
+
+test('open: with nothing left over, the first query uses the transfer that open started', async () => {
+  const { tmc, device } = await openTmc();
+  assert.equal(device.transferInCalls, 1);   // waiting for whatever comes
+  device.onRequest = (tag) => packets(inMessage(tag, text('KEYSIGHT\n')), 64);
+  assert.equal(await tmc.query('*IDN?'), 'KEYSIGHT');
+  assert.equal(device.transferInCalls, 1);
+  assert.equal(await tmc.query('*IDN?'), 'KEYSIGHT');
+  assert.equal(device.transferInCalls, 2);
+});
+
 test('open: REN_CONTROL / close: GO_TO_LOCAL when RL1 is supported', async () => {
   const { tmc, device } = await openTmc({ interfaceNumber: 1, caps488: 0x02 });
   const ren = device.controlLog.filter((s) => s.request === 160);
@@ -353,6 +387,56 @@ test('timeout: the timed-out transfer is reused, so the next response is not los
 
   assert.equal(await tmc.query('*IDN?'), 'KEYSIGHT');   // and the driver keeps working
   assert.equal(device.transferInCalls, 2);
+});
+
+const lastRequestTag = (device) => device.outLog.filter((m) => m.msgId === 0x02).at(-1).tag;
+
+test('timeout: an answer that comes late is skipped, so the answers do not slip by one', async () => {
+  // Found on a real instrument (U2741A): after a timeout the late answer was taken for the answer of
+  // the next query, and so on for every query after it.
+  const { tmc, device } = await openTmc();
+  await assert.rejects(tmc.query('SYST:ERR?', 1024, 20), UsbtmcTimeoutError);
+  device.deliver(BULK_IN, packets(inMessage(lastRequestTag(device), text('+0,"No error"\n')), 64)[0]);   // too late
+
+  device.onRequest = (tag) => packets(inMessage(tag, text('KEYSIGHT\n')), 64);
+  assert.equal(await tmc.query('*IDN?'), 'KEYSIGHT');
+  assert.equal(await tmc.query('*IDN?'), 'KEYSIGHT');
+  assert.equal(await tmc.query('*IDN?'), 'KEYSIGHT');
+});
+
+test('timeout: a late answer of several packets is skipped completely', async () => {
+  const { tmc, device } = await openTmc();
+  await assert.rejects(tmc.query('DATA?', 1024, 20), UsbtmcTimeoutError);
+  for (const packet of packets(inMessage(lastRequestTag(device), new Uint8Array(150).fill(65)), 64)) {
+    device.deliver(BULK_IN, packet);
+  }
+
+  device.onRequest = (tag) => packets(inMessage(tag, text('OK\n')), 64);
+  assert.equal(await tmc.query('*OPC?'), 'OK');
+  assert.equal(await tmc.query('*OPC?'), 'OK');
+});
+
+test('timeout: several late answers are all skipped', async () => {
+  const { tmc, device } = await openTmc();
+  const tags = [];
+  for (let i = 0; i < 2; i++) {
+    await assert.rejects(tmc.query('SYST:ERR?', 1024, 20), UsbtmcTimeoutError);
+    tags.push(lastRequestTag(device));
+  }
+  for (const tag of tags) {
+    device.deliver(BULK_IN, packets(inMessage(tag, text('old\n')), 64)[0]);
+  }
+
+  device.onRequest = (tag) => packets(inMessage(tag, text('KEYSIGHT\n')), 64);
+  assert.equal(await tmc.query('*IDN?'), 'KEYSIGHT');
+  assert.equal(await tmc.query('*IDN?'), 'KEYSIGHT');
+});
+
+test('timeout: an answer with a tag that was never given up is still an error', async () => {
+  const { tmc, device } = await openTmc();
+  await assert.rejects(tmc.query('SYST:ERR?', 1024, 20), UsbtmcTimeoutError);
+  device.onRequest = (tag) => packets(inMessage(tag + 7, text('x\n')), 64);
+  await assert.rejects(tmc.query('*IDN?'), UsbtmcProtocolError);
 });
 
 test('timeout: abort keeps polling while PENDING', async () => {
