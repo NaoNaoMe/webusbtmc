@@ -59,6 +59,7 @@ const POLL_INTERVAL_MS = 10;
 const DRAIN_TIMEOUT_MS = 100;
 const DRAIN_LIMIT_MS = 2000;
 const MAX_SKIPPED_EMPTY_PACKETS = 2;
+const MAX_STALE_ANSWERS = 4;
 
 const TIMED_OUT = Symbol('timed out');
 
@@ -90,6 +91,10 @@ class Webusbtmc {
   // IN transfers whose result has not been handed to a reader yet, by endpoint number.
   #pendingIn;
 
+  // The bTags of requests whose answer was not waited for to the end (timeout). The answer can still
+  // arrive late; it is skipped instead of being taken for the answer of the next request.
+  #abandonedTags;
+
   constructor() {
     this.#terminatorWrite = '\n';
     this.#terminatorRead = '\n';
@@ -119,6 +124,7 @@ class Webusbtmc {
     this.#interruptinPacketSize = 64;
 
     this.#pendingIn = new Map();
+    this.#abandonedTags = new Set();
   }
 
   get bcdUSBTMC() {
@@ -200,6 +206,8 @@ class Webusbtmc {
         const data = await this.#controlIn('REN_CONTROL', 'interface', REQ_REN_CONTROL, 0x01, this.#interfaceNumber, 1);
         this.#expectSuccess('REN_CONTROL', data.getUint8(0));
       }
+
+      await this.#discardStaleAnswers();
     } catch (error) {
       try {
         await device.close();
@@ -366,10 +374,20 @@ class Webusbtmc {
     await this.#transmit(MSGID_REQUEST_DEV_DEP_MSG_IN, maxLength, 0x00, 0x00, null);
     const expectedTag = this.#lastbulkoutbTag;
 
-    let first = await this.#bulkIn(this.#bulkinPacketSize, timeout);
-    // A zero-length packet may remain from the previous transfer.
-    for (let skipped = 0; first.byteLength === 0 && skipped < MAX_SKIPPED_EMPTY_PACKETS; skipped++) {
-      first = await this.#bulkIn(this.#bulkinPacketSize, timeout);
+    let first;
+    try {
+      first = await this.#readFirstPacket(timeout);
+      // The answer to a request that timed out earlier can still come. It is skipped.
+      while (this.#isAbandonedAnswer(first, expectedTag)) {
+        this.#abandonedTags.delete(first.getUint8(1));
+        await this.#skipMessage(first, timeout);
+        first = await this.#readFirstPacket(timeout);
+      }
+    } catch (error) {
+      if (error instanceof UsbtmcTimeoutError) {
+        this.#abandonedTags.add(expectedTag);   // the answer may still come
+      }
+      throw error;
     }
     if (first.byteLength < HEADER_SIZE) {
       throw new UsbtmcProtocolError('Bulk-IN packet is shorter than the USBTMC header');
@@ -381,6 +399,7 @@ class Webusbtmc {
     if (first.getUint8(1) !== expectedTag || first.getUint8(2) !== (~expectedTag & 0xFF)) {
       throw new UsbtmcProtocolError('bTag mismatch in Bulk-IN header');
     }
+    this.#abandonedTags.clear();   // the answers that were given up can no longer come before this one
 
     const transferSize = first.getUint32(4, true);
     const eom = (first.getUint8(8) & 0x01) === 0x01;
@@ -403,6 +422,37 @@ class Webusbtmc {
     }
 
     return { data: data, eom: eom };
+  }
+
+  async #readFirstPacket(timeout) {
+    let packet = await this.#bulkIn(this.#bulkinPacketSize, timeout);
+    // A zero-length packet may remain from the previous transfer.
+    for (let skipped = 0; packet.byteLength === 0 && skipped < MAX_SKIPPED_EMPTY_PACKETS; skipped++) {
+      packet = await this.#bulkIn(this.#bulkinPacketSize, timeout);
+    }
+    return packet;
+  }
+
+  /** True for a DEV_DEP_MSG_IN that answers a request that was given up (not the current one). */
+  #isAbandonedAnswer(packet, expectedTag) {
+    if (packet.byteLength < HEADER_SIZE || packet.getUint8(0) !== MSGID_DEV_DEP_MSG_IN) {
+      return false;
+    }
+    const tag = packet.getUint8(1);
+    return tag !== expectedTag && packet.getUint8(2) === (~tag & 0xFF) && this.#abandonedTags.has(tag);
+  }
+
+  /** Reads the rest of a message whose first packet is `first` and throws it away. */
+  async #skipMessage(first, timeout) {
+    const transferSize = first.getUint32(4, true);
+    let received = Math.min(first.byteLength - HEADER_SIZE, transferSize);
+    while (received < transferSize) {
+      const chunk = await this.#bulkIn(this.#bulkinPacketSize, timeout);
+      if (chunk.byteLength === 0) {
+        throw new UsbtmcProtocolError('Unexpected empty Bulk-IN packet');
+      }
+      received += chunk.byteLength;
+    }
   }
 
   /** Reads exactly `length` bytes, possibly across several messages. */
@@ -568,19 +618,37 @@ class Webusbtmc {
     }
   }
 
-  /** Reads Bulk-IN until a short packet (or silence) is seen. */
+  /** Reads Bulk-IN until a short packet (or silence) is seen. Returns true if something was read. */
   async #drainBulkIn() {
     const startedAt = Date.now();
+    let readAny = false;
     while (Date.now() - startedAt < DRAIN_LIMIT_MS) {
       let result;
       try {
         result = await this.#bulkInRaw(this.#bulkinPacketSize, DRAIN_TIMEOUT_MS);
       } catch (error) {
-        return;
+        return readAny;
       }
-      if (result === TIMED_OUT || result.status != 'ok' || result.data.byteLength < this.#bulkinPacketSize) {
-        return;
+      if (result === TIMED_OUT || result.status != 'ok') {
+        return readAny;
       }
+      readAny = true;
+      if (result.data.byteLength < this.#bulkinPacketSize) {
+        return readAny;
+      }
+    }
+    return readAny;
+  }
+
+  /**
+   * A session that ended with an answer that was not read (for example after a timeout) leaves it in
+   * the instrument. The first request of the next session would get that answer, with the wrong bTag.
+   * So whatever is waiting is read and thrown away before the first request. When nothing is waiting,
+   * the transfer that was started stays queued and goes to the first reader.
+   */
+  async #discardStaleAnswers() {
+    for (let i = 0; i < MAX_STALE_ANSWERS && await this.#drainBulkIn(); i++) {
+      // each round throws away one message
     }
   }
 
@@ -708,6 +776,7 @@ class Webusbtmc {
 
     let data = await this.#controlIn('INITIATE_CLEAR', 'interface', REQ_INITIATE_CLEAR, 0, this.#interfaceNumber, 1);
     this.#expectSuccess('INITIATE_CLEAR', data.getUint8(0));
+    this.#abandonedTags.clear();   // the device drops the answers that were still to come
 
     let completed = false;
     for (let i = 0; i < MAX_POLLS && !completed; i++) {
