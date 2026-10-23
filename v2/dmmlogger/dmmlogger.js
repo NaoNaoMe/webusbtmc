@@ -8,6 +8,7 @@ import {
 import { buildCsv, parseCsv, summarize, fileStamp } from './csv.js';
 import { runLogger } from './logger.js';
 import { createChart } from './chart.js';
+import { WINDOWS, DEFAULT_WINDOW, viewBounds } from './view.js';
 
 // The DMM logger: this file connects the page to the modules.
 //   dmm.js     measurements, the number in an answer         csv.js     the file
@@ -39,12 +40,16 @@ let running = false;
 let controller = null;
 let skipped = 0;
 let clearArmed = false;
+const view = { size: DEFAULT_WINDOW, follow: true, start: 0 };   // the part of the recording that the chart shows
 
 const startButton = $('start-button');
 const intervalSelect = $('interval-select');
 const saveButton = $('save-button');
 const clearButton = $('clear-button');
 const openInput = $('open-input');
+const windowSelect = $('window-select');
+const scrollRange = $('scroll-range');
+const liveButton = $('live-button');
 
 // ---------------------------------------------------------------------------------------------
 // the cards
@@ -346,6 +351,44 @@ function showSkipped() {
     `${skipped} reading${skipped === 1 ? ' was' : 's were'} skipped because the DMM needed more time than the interval. Use a longer interval.`;
 }
 
+// ---------------------------------------------------------------------------------------------
+// which part of the recording the chart shows
+
+function totalTime() {
+  const count = data.rows.length;
+  return count > 0 ? data.rows[count - 1].elapsed : 0;
+}
+
+function updateView() {
+  const bounds = viewBounds({ total: totalTime(), size: view.size, start: view.start, follow: view.follow });
+  chart.setWindow(bounds.min, bounds.max);
+  scrollRange.max = String(bounds.slider.last);
+  scrollRange.value = String(bounds.slider.value);
+  scrollRange.disabled = bounds.slider.last <= 0;
+  const following = running && view.follow && view.size !== null;
+  liveButton.disabled = !running || view.size === null;
+  liveButton.setAttribute('aria-pressed', String(following));
+  liveButton.classList.toggle('btn-primary', following);
+  liveButton.classList.toggle('btn-outline-secondary', !following);
+}
+
+for (const [seconds, label] of WINDOWS) {
+  windowSelect.add(new Option(label, seconds === null ? '' : String(seconds), false, seconds === DEFAULT_WINDOW));
+}
+windowSelect.addEventListener('change', () => {
+  view.size = windowSelect.value === '' ? null : Number(windowSelect.value);
+  updateView();
+});
+scrollRange.addEventListener('input', () => {
+  view.follow = false;   // moving the window leaves the newest readings
+  view.start = Number(scrollRange.value);
+  updateView();
+});
+liveButton.addEventListener('click', () => {
+  view.follow = true;
+  updateView();
+});
+
 function addRow(row, active) {
   const values = row.results.map((result) => ('value' in result ? result.value : null));
   data.rows.push({ elapsed: row.elapsed, timestamp: row.timestamp, values });
@@ -392,6 +435,8 @@ async function start() {
   skipped = 0;
   showSkipped();
   chart.setRows(data.columns, []);
+  view.follow = true;
+  view.start = 0;
   $('source-note').textContent = 'Logging. The readings are in this page only: save them as CSV before you leave.';
   for (const slot of slots) {
     slot.stats = { count: 0, min: Infinity, max: -Infinity, sum: 0 };
@@ -424,6 +469,11 @@ async function start() {
   } finally {
     running = false;
     controller = null;
+    if (view.follow) {
+      // the window stays where it is when the logging ends, and can be moved
+      view.follow = false;
+      view.start = Math.max(0, totalTime() - (view.size === null ? 0 : view.size));
+    }
     $('source-note').textContent = data.rows.length > 0 ? 'Stopped. Save the readings as CSV to keep them.' : 'The readings appear here.';
     setStatus(statusText());
     updateControls();
@@ -476,6 +526,8 @@ async function openCsv(file) {
   skipped = 0;
   showSkipped();
   chart.setRows(columns, data.rows);
+  view.follow = false;
+  view.start = 0;
 
   slots.forEach((slot, i) => {
     showReading(slot, null);
@@ -511,6 +563,8 @@ clearButton.addEventListener('click', () => {
   skipped = 0;
   showSkipped();
   chart.setRows([], []);
+  view.follow = true;
+  view.start = 0;
   for (const slot of slots) {
     showReading(slot, null);
     showStats(slot, noStats);
@@ -542,6 +596,7 @@ function updateControls() {
   if (!running) {
     setStatus(statusText());
   }
+  updateView();
 }
 
 for (const [milliseconds, label] of INTERVALS) {

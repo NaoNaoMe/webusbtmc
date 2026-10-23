@@ -28,7 +28,10 @@ export function createChart(canvas) {
       parsing: false,   // the points are already { x, y }
       interaction: { mode: 'nearest', axis: 'x', intersect: false },
       plugins: {
-        legend: { display: false },   // shown when there are columns
+        legend: {
+          display: false,   // shown when there are columns
+          labels: { filter: (item, data) => data.datasets[item.datasetIndex].label !== '' },   // no box for a column that is not there
+        },
         decimation: { enabled: true, algorithm: 'min-max' },   // many readings: draw the smallest and the largest of each part
         tooltip: {
           callbacks: {
@@ -89,13 +92,22 @@ export function createChart(canvas) {
       chart.update('none');
     },
 
-    /** Adds one row (a reading that is empty is left out; the line goes on over it). */
+    /**
+     * Adds one row (a reading that is empty is left out; the line goes on over it).
+     * The chart is drawn by the next setWindow().
+     */
     addRow(row) {
       row.values.forEach((value, i) => {
         if (value !== null && value !== undefined && chart.data.datasets[i]) {
           chart.data.datasets[i].data.push({ x: row.elapsed, y: value });
         }
       });
+    },
+
+    /** Shows the part from `min` to `max` seconds. The vertical axes follow what is in it. */
+    setWindow(min, max) {
+      chart.options.scales.x.min = min;
+      chart.options.scales.x.max = max;
       chart.update('none');
     },
   };

@@ -38,6 +38,13 @@
 .apply-result .err { color: var(--err); }
 .apply-result .err .bi { color: var(--err); }
 
+/* Which part of the recording the chart shows */
+.view-controls { display: flex; flex-wrap: wrap; align-items: center; gap: 8px 10px; margin-bottom: 8px; }
+.view-controls .field-label { margin: 0; }
+.view-controls .form-select { width: auto; }
+.scroll-range { flex: 1 1 160px; min-width: 0; accent-color: var(--accent); }
+@container (max-width: 520px) { .scroll-range { order: 3; flex-basis: 100%; } }
+
 .chart-box { position: relative; height: 340px; }
 .panel-head { display: flex; flex-wrap: wrap; align-items: center; justify-content: space-between; gap: 8px; margin-bottom: 12px; }
 .panel-head h2 { margin: 0; }

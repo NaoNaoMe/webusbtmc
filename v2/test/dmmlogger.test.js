@@ -6,6 +6,7 @@ import {
 } from '../dmmlogger/dmm.js';
 import { buildCsv, parseCsv, summarize, isoLocal, fileStamp } from '../dmmlogger/csv.js';
 import { runLogger } from '../dmmlogger/logger.js';
+import { WINDOWS, DEFAULT_WINDOW, viewBounds } from '../dmmlogger/view.js';
 
 // ---------------------------------------------------------------------------------------------
 // dmm.js
@@ -439,4 +440,39 @@ test('logger: with the real clock', async () => {
   });
   assert.equal(rows.length, 4);
   assert.ok(rows[3].elapsed >= 0.05 && rows[3].elapsed < 0.5, `elapsed ${rows[3].elapsed}`);
+});
+
+// ---------------------------------------------------------------------------------------------
+// view.js: the window of the chart
+
+test('windows: from short to long, the whole recording last, the default is one of them', () => {
+  const sizes = WINDOWS.map(([seconds]) => seconds);
+  assert.equal(sizes.at(-1), null);
+  assert.deepEqual(sizes.slice(0, -1), [...sizes.slice(0, -1)].sort((a, b) => a - b));
+  assert.ok(sizes.includes(DEFAULT_WINDOW));
+  assert.equal(DEFAULT_WINDOW, 60);
+});
+
+test('viewBounds: following a recording that is shorter than the window keeps the axis as long as the window', () => {
+  assert.deepEqual(viewBounds({ total: 20, size: 60, follow: true }), { min: 0, max: 60, slider: { last: 0, value: 0 } });
+  assert.deepEqual(viewBounds({ total: 0, size: 60, follow: true }), { min: 0, max: 60, slider: { last: 0, value: 0 } });
+  assert.deepEqual(viewBounds({ total: 60, size: 60, follow: true }), { min: 0, max: 60, slider: { last: 0, value: 0 } });
+});
+
+test('viewBounds: following a long recording ends at the newest reading', () => {
+  assert.deepEqual(viewBounds({ total: 500, size: 60, follow: true }), { min: 440, max: 500, slider: { last: 440, value: 440 } });
+  assert.deepEqual(viewBounds({ total: 501.5, size: 60, start: 3, follow: true }).min, 441.5);   // the start is ignored
+});
+
+test('viewBounds: not following keeps the start, inside the recording', () => {
+  assert.deepEqual(viewBounds({ total: 500, size: 60, start: 100 }), { min: 100, max: 160, slider: { last: 440, value: 100 } });
+  assert.equal(viewBounds({ total: 500, size: 60, start: 100 }).min, viewBounds({ total: 900, size: 60, start: 100 }).min);   // it stays when more comes
+  assert.equal(viewBounds({ total: 500, size: 60, start: 9999 }).min, 440);
+  assert.equal(viewBounds({ total: 500, size: 60, start: -5 }).min, 0);
+  assert.equal(viewBounds({ total: 30, size: 60, start: 10 }).min, 0);
+});
+
+test('viewBounds: the whole recording, with nothing to scroll', () => {
+  assert.deepEqual(viewBounds({ total: 300, size: null, follow: true }), { min: 0, max: 300, slider: { last: 0, value: 0 } });
+  assert.deepEqual(viewBounds({ total: 0, size: null }), { min: 0, max: 1, slider: { last: 0, value: 0 } });
 });
