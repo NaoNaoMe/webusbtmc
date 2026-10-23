@@ -56,6 +56,14 @@
         </div>
       </div>
       <p class="note mb-2" id="source-note">The readings appear here. Open a CSV file of the logger to look at it without a DMM.</p>
+      <div class="view-controls">
+        <label class="field-label" for="window-select">Show</label>
+        <select class="form-select" id="window-select"></select>
+        <input class="scroll-range" type="range" id="scroll-range" min="0" max="0" step="any" value="0" disabled aria-label="Position in the recording">
+        <button type="button" class="btn btn-outline-secondary" id="live-button" aria-pressed="false" disabled>
+          <i class="bi bi-broadcast me-1"></i>Live
+        </button>
+      </div>
       <div class="chart-box"><canvas id="chart" aria-label="Readings against the time"></canvas></div>
       <p class="note skip-note d-none" id="skip-note"></p>
     </section>
@@ -73,6 +81,16 @@
       <li><strong>Start.</strong> Choose the interval and press <b>Start</b>. The readings are drawn as they come. Press <b>Stop</b> to end.</li>
       <li><strong>Save.</strong> Press <b>Save CSV</b>. The file keeps the time of every reading and can be opened in a spreadsheet.</li>
     </ol>
+    <h6>Advanced settings</h6>
+    <p>Each card has settings that are closed at first: the integration time (<b>NPLC</b>) and the <b>range</b>. Press <b>Apply</b>, and the card shows which of them the DMM accepted and what the DMM has now. A setting that is refused goes back to its default.</p>
+    <ul>
+      <li>A DMM that is slow (for example 0.4 seconds for a reading) can be made faster with a smaller NPLC. Fewer cycles also mean more noise.</li>
+      <li>A fixed range saves the time the DMM needs to change the range. A reading over the range is then shown as OVLD.</li>
+      <li>Not every DMM has an NPLC setting, and each DMM accepts only some values. The DMM tells you when it does not.</li>
+      <li>Setting up a measurement again puts the DMM back to its defaults, so the settings are cleared when you choose another measurement.</li>
+    </ul>
+    <h6>The chart</h6>
+    <p>The chart shows the last minute. Choose how much it shows with <b>Show</b>. While logging, it follows the newest readings. Move the slider to look at earlier readings, and press <b>Live</b> to go back to the newest. The slider also moves through a CSV file that you open.</p>
     <h6>Looking at a file</h6>
     <p><b>Open CSV</b> shows a file of the logger again, with the smallest, the largest and the mean of each DMM. No DMM is needed.</p>
     <h6>Good to know</h6>
@@ -88,8 +106,12 @@
       <li>Set the screen and the computer not to sleep. This page does not do that for you.</li>
       <li>On a phone: connect it to a charger, turn the screen timeout off, and lower the brightness.</li>
     </ul>
-    <h6>Instruments</h6>
-    <p>Made for Keysight (Agilent) DMMs. A modular DMM of the U27xx series must be switched to USBTMC mode first.</p>
+    <h6>Tested devices</h6>
+    <ul>
+      <li>Keysight U2741A</li>
+      <li>Keysight 34405A</li>
+    </ul>
+    <p>Other Keysight (Agilent) DMMs may work too. Only instruments of Keysight (Agilent) are offered in the dialog of the browser. A modular DMM of the U27xx series must be switched to USBTMC mode first.</p>
   </template>
 
   <script src="https://cdn.jsdelivr.net/npm/chart.js@4.5.1/dist/chart.umd.min.js" integrity="sha256-SERKgtTty1vsDxll+qzd4Y2cF9swY9BCq62i9wXJ9Uo=" crossorigin="anonymous"></script>

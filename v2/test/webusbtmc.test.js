@@ -184,8 +184,6 @@ test('open: twice is rejected', async () => {
 });
 
 test('open: an answer that an earlier session left in the instrument is thrown away', async () => {
-  // Found on a real instrument (U2741A): the first query of the next session got the old answer, with
-  // another bTag, and the answer of every query after it came one query too late.
   const device = new FakeDevice();
   device.inQueue.push(inMessage(6, text('old\n')));   // waiting before the session starts
   const tmc = new Webusbtmc();
@@ -376,7 +374,6 @@ test('timeout: abort failure is attached as the cause', async () => {
 });
 
 test('timeout: the timed-out transfer is reused, so the next response is not lost', async () => {
-  // Found on a real instrument: the transfer left behind by a timeout took the next response.
   const { tmc, device } = await openTmc();
   await assert.rejects(tmc.read(1024, 20), UsbtmcTimeoutError);
 
@@ -392,8 +389,6 @@ test('timeout: the timed-out transfer is reused, so the next response is not los
 const lastRequestTag = (device) => device.outLog.filter((m) => m.msgId === 0x02).at(-1).tag;
 
 test('timeout: an answer that comes late is skipped, so the answers do not slip by one', async () => {
-  // Found on a real instrument (U2741A): after a timeout the late answer was taken for the answer of
-  // the next query, and so on for every query after it.
   const { tmc, device } = await openTmc();
   await assert.rejects(tmc.query('SYST:ERR?', 1024, 20), UsbtmcTimeoutError);
   device.deliver(BULK_IN, packets(inMessage(lastRequestTag(device), text('+0,"No error"\n')), 64)[0]);   // too late
