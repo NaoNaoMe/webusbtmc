@@ -132,6 +132,33 @@ const noStats = { min: null, max: null, mean: null };
 // ---------------------------------------------------------------------------------------------
 // the connection of each card
 
+/**
+ * The first thing asked of a new instrument is the DC voltage, which every DMM has. An instrument that
+ * does not accept it (an oscilloscope of the same maker, for example) is not a DMM and is not connected.
+ * Every connection starts with the DC voltage, so the check does not depend on the last choice.
+ */
+async function checkIsDmm(slot) {
+  slot.measurement = 'dcv';
+  $(`${slot.prefix}measurement`).value = 'dcv';
+
+  const notDmm = (detail) => Object.assign(new Error(detail), {
+    title: 'This instrument is not a DMM.',
+    summary: 'It does not understand the commands of a DMM.',
+  });
+  let result;
+  try {
+    result = await configure(slot.tmc, 'dcv', {}, slot.profile);
+  } catch (error) {
+    if (error.name === 'UsbtmcTimeoutError') {
+      throw notDmm('It did not answer the commands of a DMM. Choose a DMM.');
+    }
+    throw error;
+  }
+  if (!result.ok) {
+    throw notDmm(`It does not accept “${MEASUREMENTS.dcv.label}” (${result.errors.join(' ')}). Choose a DMM.`);
+  }
+}
+
 async function connect(slot, device) {
   // Only the makers that were tried: nothing is sent to an instrument of another maker
   const profile = profileForVendor(device.vendorId);
@@ -153,8 +180,8 @@ async function connect(slot, device) {
       });
     }
     slot.profile = profile;
+    await checkIsDmm(slot);
     resetFields(slot);
-    await applySettings(slot);
   } catch (error) {
     await slot.tmc.close().catch(() => { });
     throw error;
