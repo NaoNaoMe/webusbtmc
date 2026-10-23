@@ -73,6 +73,14 @@
       <li><strong>Start.</strong> Choose the interval and press <b>Start</b>. The readings are drawn as they come. Press <b>Stop</b> to end.</li>
       <li><strong>Save.</strong> Press <b>Save CSV</b>. The file keeps the time of every reading and can be opened in a spreadsheet.</li>
     </ol>
+    <h6>Advanced settings</h6>
+    <p>Each card has settings that are closed at first: the integration time (<b>NPLC</b>) and the <b>range</b>. Press <b>Apply</b>, and the card shows which of them the DMM accepted and what the DMM has now. A setting that is refused goes back to its default.</p>
+    <ul>
+      <li>A DMM that is slow (for example 0.4 seconds for a reading) can be made faster with a smaller NPLC. Fewer cycles also mean more noise.</li>
+      <li>A fixed range saves the time the DMM needs to change the range. A reading over the range is then shown as OVLD.</li>
+      <li>Not every DMM has an NPLC setting, and each DMM accepts only some values. The DMM tells you when it does not.</li>
+      <li>Setting up a measurement again puts the DMM back to its defaults, so the settings are cleared when you choose another measurement.</li>
+    </ul>
     <h6>Looking at a file</h6>
     <p><b>Open CSV</b> shows a file of the logger again, with the smallest, the largest and the mean of each DMM. No DMM is needed.</p>
     <h6>Good to know</h6>
@@ -89,7 +97,7 @@
       <li>On a phone: connect it to a charger, turn the screen timeout off, and lower the brightness.</li>
     </ul>
     <h6>Instruments</h6>
-    <p>Made for Keysight (Agilent) DMMs. A modular DMM of the U27xx series must be switched to USBTMC mode first.</p>
+    <p>Made for Keysight (Agilent) DMMs, and tried with the U2741A and the 34405A. A DMM of another maker that understands the same standard commands may work too, but this has not been tried. A modular DMM of the U27xx series must be switched to USBTMC mode first.</p>
   </template>
 
   <script src="https://cdn.jsdelivr.net/npm/chart.js@4.5.1/dist/chart.umd.min.js" integrity="sha256-SERKgtTty1vsDxll+qzd4Y2cF9swY9BCq62i9wXJ9Uo=" crossorigin="anonymous"></script>

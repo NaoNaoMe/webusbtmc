@@ -1,7 +1,9 @@
 // Tests of the DMM logger: the readings, the CSV file and the loop. Run with: node --test (in the v2 folder)
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
-import { MEASUREMENTS, parseReading, parseIdn, formatReading, formatDuration, configure, readValue } from '../dmmlogger/dmm.js';
+import {
+  MEASUREMENTS, STANDARD_SCPI, profileFor, parseReading, parseIdn, parseConfig, formatReading, formatRange, formatDuration, configure, readSettings, readValue,
+} from '../dmmlogger/dmm.js';
 import { buildCsv, parseCsv, summarize, isoLocal, fileStamp } from '../dmmlogger/csv.js';
 import { runLogger } from '../dmmlogger/logger.js';
 
@@ -35,6 +37,15 @@ test('formatReading: six digits with the prefix that fits', () => {
   assert.equal(formatReading(null, 'V'), '—');
 });
 
+test('formatRange: the range with a prefix, three digits at most', () => {
+  assert.equal(formatRange(0.1, 'V'), '100 mV');
+  assert.equal(formatRange(10, 'V'), '10 V');
+  assert.equal(formatRange(3, 'V'), '3 V');
+  assert.equal(formatRange(10000, 'Ω'), '10 kΩ');
+  assert.equal(formatRange(1e-7, 'A'), '100 nA');
+  assert.equal(formatRange(0, 'V'), '0 V');
+});
+
 test('formatDuration: minutes and seconds, then hours', () => {
   assert.equal(formatDuration(0), '0:00');
   assert.equal(formatDuration(75.9), '1:15');
@@ -44,12 +55,41 @@ test('formatDuration: minutes and seconds, then hours', () => {
   assert.equal(formatDuration(-3), '0:00');
 });
 
-test('every measurement has a command, a label and units', () => {
+test('every measurement has what the commands need, a label and units', () => {
   for (const [key, measurement] of Object.entries(MEASUREMENTS)) {
-    assert.match(measurement.command, /^CONF:/, key);
+    assert.match(measurement.scpi, /^[A-Z]+(:[A-Z]+)?$/, key);
+    assert.equal(typeof measurement.nplc, 'boolean', key);
     assert.ok(measurement.label && measurement.unit && measurement.symbol, key);
     assert.match(measurement.unit, /^[\x20-\x7e]+$/, `${key}: the unit of the file is ASCII`);
   }
+});
+
+test('the standard commands: the measurement, the range and the integration time', () => {
+  const p = STANDARD_SCPI;
+  assert.equal(p.configure(MEASUREMENTS.dcv), 'CONF:VOLT:DC AUTO');
+  assert.equal(p.configure(MEASUREMENTS.dcv, 10), 'CONF:VOLT:DC 10');
+  assert.equal(p.configure(MEASUREMENTS.res, 1e4), 'CONF:RES 10000');
+  assert.equal(p.configure(MEASUREMENTS.freq), 'CONF:FREQ');   // no argument for the automatic range
+  assert.equal(p.configure(MEASUREMENTS.cap), 'CONF:CAP');
+  assert.equal(p.nplc(MEASUREMENTS.dci, 10), 'CURR:DC:NPLC 10');
+  assert.equal(p.nplcQuery(MEASUREMENTS.dcv), 'VOLT:DC:NPLC?');
+});
+
+test('NPLC is for DC voltage, DC current and resistance only', () => {
+  assert.deepEqual(Object.entries(MEASUREMENTS).filter(([, m]) => m.nplc).map(([key]) => key), ['dcv', 'dci', 'res']);
+});
+
+test('profileFor gives the standard commands', () => {
+  assert.equal(profileFor({ maker: 'Agilent Technologies', model: '34405A' }), STANDARD_SCPI);
+  assert.equal(profileFor(parseIdn('SOME MAKER,MODEL,1,1')), STANDARD_SCPI);
+});
+
+test('parseConfig reads the range and the resolution', () => {
+  assert.deepEqual(parseConfig('"VOLT +1.00000E+01,+1.50000E-06"\n'), { function: 'VOLT', range: 10, resolution: 1.5e-6 });
+  assert.deepEqual(parseConfig('"RES +1.00000E+04,+1.5E-06"'), { function: 'RES', range: 10000, resolution: 1.5e-6 });
+  assert.deepEqual(parseConfig('"CURR:DC +1.00000E-01,+1.00000E-07"'), { function: 'CURR:DC', range: 0.1, resolution: 1e-7 });
+  assert.equal(parseConfig('nonsense'), null);
+  assert.equal(parseConfig(''), null);
 });
 
 class FakeInstrument {
@@ -58,13 +98,14 @@ class FakeInstrument {
     this.errors = [];
     this.rejects = rejects;   // the commands that make an error
     this.answer = '+1.0E+00\n';
+    this.answers = {};        // answers to other queries
   }
   async write(text) {
     this.sent.push(text);
     if (text === '*CLS') {
       this.errors = [];
     } else if (this.rejects.includes(text)) {
-      this.errors.push('-113,"Undefined header"');
+      this.errors.push(this.rejectWith ?? '-113,"Undefined header"');
     }
   }
   async query(text, length, timeout) {
@@ -73,14 +114,55 @@ class FakeInstrument {
     if (text === 'SYST:ERR?') {
       return (this.errors.shift() ?? '+0,"No error"') + '\n';
     }
-    return this.answer;
+    return this.answers[text] ?? this.answer;
   }
 }
 
-test('configure: clears the errors, sends the command and checks the error queue', async () => {
+test('configure: clears the errors, sets the measurement up and checks the error queue', async () => {
   const instrument = new FakeInstrument();
-  assert.deepEqual(await configure(instrument, 'dcv'), { ok: true });
+  const result = await configure(instrument, 'dcv');
+  assert.equal(result.ok, true);
+  assert.deepEqual(result.results, [{ setting: 'measurement', command: 'CONF:VOLT:DC AUTO', ok: true, errors: [] }]);
   assert.deepEqual(instrument.sent, ['*CLS', 'CONF:VOLT:DC AUTO', 'SYST:ERR?']);
+});
+
+test('configure: a range and an integration time are sent one by one, after the measurement', async () => {
+  const instrument = new FakeInstrument();
+  const result = await configure(instrument, 'dcv', { range: 10, nplc: 1 });
+  assert.equal(result.ok, true);
+  assert.deepEqual(instrument.sent, [
+    '*CLS',
+    'CONF:VOLT:DC AUTO', 'SYST:ERR?',
+    'CONF:VOLT:DC 10', 'SYST:ERR?',
+    'VOLT:DC:NPLC 1', 'SYST:ERR?',
+  ]);
+  assert.deepEqual(result.results.map((r) => r.setting), ['measurement', 'range', 'nplc']);
+});
+
+test('configure: the answer tells which setting the DMM did not accept', async () => {
+  const instrument = new FakeInstrument({ rejects: ['CONF:VOLT:DC 3'] });
+  instrument.rejectWith = '-224,"Illegal parameter value"';
+  const result = await configure(instrument, 'dcv', { range: 3, nplc: 10 });
+  assert.equal(result.ok, false);
+  assert.deepEqual(result.results.map((r) => r.ok), [true, false, true]);   // the integration time is still sent
+  assert.deepEqual(result.results[1].errors, ['-224,"Illegal parameter value"']);
+  assert.deepEqual(result.errors, ['-224,"Illegal parameter value"']);
+});
+
+test('configure: a DMM without NPLC reports the error of its command', async () => {
+  const instrument = new FakeInstrument({ rejects: ['VOLT:DC:NPLC 10'] });
+  const result = await configure(instrument, 'dcv', { nplc: 10 });
+  assert.equal(result.ok, false);
+  assert.equal(result.results[1].setting, 'nplc');
+  assert.deepEqual(result.results[1].errors, ['-113,"Undefined header"']);
+});
+
+test('configure: NPLC for a measurement that has none is skipped, not sent', async () => {
+  const instrument = new FakeInstrument();
+  const result = await configure(instrument, 'acv', { nplc: 10 });
+  assert.equal(result.ok, false);
+  assert.deepEqual(result.results[1], { setting: 'nplc', command: null, ok: false, skipped: true, errors: [] });
+  assert.ok(!instrument.sent.some((command) => command.includes('NPLC')));
 });
 
 test('configure: an instrument that does not accept the measurement', async () => {
@@ -89,6 +171,28 @@ test('configure: an instrument that does not accept the measurement', async () =
   assert.equal(result.ok, false);
   assert.deepEqual(result.errors, ['-113,"Undefined header"']);
   await assert.rejects(() => configure(instrument, 'nothing'), /Unknown measurement/);
+});
+
+test('configure: a profile of another maker is used for the commands', async () => {
+  const profile = {
+    ...STANDARD_SCPI,
+    clear: 'CLS',
+    configure: (measurement, range) => `:FUNC ${measurement.scpi}${range === null ? '' : ' ' + range}`,
+    nplc: (measurement, value) => `:RATE ${value}`,
+  };
+  const instrument = new FakeInstrument();
+  await configure(instrument, 'dcv', { range: 5, nplc: 2 }, profile);
+  assert.deepEqual(instrument.sent.filter((command) => command !== 'SYST:ERR?'), ['CLS', ':FUNC VOLT:DC', ':FUNC VOLT:DC 5', ':RATE 2']);
+});
+
+test('readSettings: the range from CONF?, the integration time only when asked', async () => {
+  const instrument = new FakeInstrument();
+  instrument.answers['CONF?'] = '"VOLT +1.00000E+01,+1.50000E-06"\n';
+  instrument.answers['VOLT:DC:NPLC?'] = '+1.00000000E+00\n';
+  assert.deepEqual(await readSettings(instrument, 'dcv'), { range: 10, resolution: 1.5e-6, nplc: null });
+  assert.ok(!instrument.sent.includes('VOLT:DC:NPLC?'));
+  assert.deepEqual(await readSettings(instrument, 'dcv', { withNplc: true }), { range: 10, resolution: 1.5e-6, nplc: 1 });
+  assert.deepEqual(await readSettings(instrument, 'acv', { withNplc: true }), { range: 10, resolution: 1.5e-6, nplc: null });   // no NPLC to ask for
 });
 
 test('readValue asks READ? with the timeout and parses the answer', async () => {

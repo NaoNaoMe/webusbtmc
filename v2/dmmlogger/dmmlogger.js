@@ -2,7 +2,9 @@
 
 import Webusbtmc from '../webusbtmc/webusbtmc.js';
 import { setupConnectButton, setConnectionState, showMessage, clearMessages, setupHowTo } from '../common/ui.js';
-import { MEASUREMENTS, parseIdn, formatReading, formatDuration, configure, readValue } from './dmm.js';
+import {
+  MEASUREMENTS, profileFor, parseIdn, formatReading, formatRange, formatDuration, configure, readSettings, readValue,
+} from './dmm.js';
 import { buildCsv, parseCsv, summarize, fileStamp } from './csv.js';
 import { runLogger } from './logger.js';
 import { createChart } from './chart.js';
@@ -13,6 +15,7 @@ import { createChart } from './chart.js';
 
 const $ = (id) => document.getElementById(id);
 
+const NPLC_VALUES = [0.02, 0.2, 1, 10, 20, 100];
 const INTERVALS = [[500, '0.5 s'], [1000, '1 s'], [2000, '2 s'], [5000, '5 s'], [10000, '10 s'], [30000, '30 s'], [60000, '1 min']];
 const SLOT_COUNT = 2;
 
@@ -24,7 +27,9 @@ const slots = Array.from({ length: SLOT_COUNT }, (_, i) => ({
   idn: null,
   connected: false,
   measurement: 'dcv',
-  stats: null,   // while logging: { count, min, max, sum }
+  profile: null,   // how the DMM is told what to do (dmm.js)
+  pending: false,  // true while the settings were changed and not applied
+  stats: null,     // while logging: { count, min, max, sum }
 }));
 
 const chart = createChart($('chart'));
@@ -48,6 +53,7 @@ function cardHtml(slot) {
   const p = slot.prefix;
   const options = Object.entries(MEASUREMENTS).map(([key, { label }]) => `<option value="${key}">${label}</option>`).join('');
   const tile = (id, label) => `<div class="tile"><small>${label}</small><span id="${p}${id}">—</span></div>`;
+  const nplcOptions = ['<option value="">Default</option>', ...NPLC_VALUES.map((value) => `<option value="${value}">${value}</option>`)].join('');
   return `<section class="card-lite dmm${slot.number === 2 ? ' second' : ''}" id="${p}card">
     <div class="head">
       <div class="info">
@@ -71,6 +77,28 @@ function cardHtml(slot) {
     </div>
     <div class="reading dim" id="${p}reading" aria-live="off">—</div>
     <div class="kv">${tile('min', 'Smallest')}${tile('max', 'Largest')}${tile('mean', 'Mean')}</div>
+    <details class="settings" id="${p}settings">
+      <summary class="field-label">Advanced settings</summary>
+      <div class="fields">
+        <div>
+          <label class="field-label" for="${p}nplc">Integration time (NPLC)</label>
+          <select class="form-select" id="${p}nplc" disabled>${nplcOptions}</select>
+        </div>
+        <div>
+          <label class="field-label" for="${p}range">Range (<span id="${p}range-unit">V</span>)</label>
+          <input class="form-control mono" id="${p}range" inputmode="decimal" placeholder="Auto" autocomplete="off" spellcheck="false" disabled>
+        </div>
+      </div>
+      <p class="note mb-1"><b>NPLC</b> is how long the DMM averages one reading, in power line cycles (1 PLC is 20 ms at 50 Hz, 16.7 ms at 60 Hz).
+        Fewer cycles are faster and noisier. It is used for DC voltage, DC current and resistance. Not every DMM has it, and each accepts only some values.</p>
+      <p class="note mb-2"><b>Range</b> empty is automatic. A fixed range saves the time the DMM needs to change the range, but a reading over the range shows OVLD.
+        Some DMMs accept only their own ranges (for example 0.1, 1, 10 or 100 V).</p>
+      <div class="row-actions apply-row">
+        <button type="button" class="btn btn-outline-secondary" id="${p}apply" disabled>Apply</button>
+        <span class="note" id="${p}apply-state" aria-live="polite"></span>
+      </div>
+      <ul class="apply-result" id="${p}apply-result" aria-live="polite"></ul>
+    </details>
   </section>`;
 }
 
@@ -111,7 +139,9 @@ async function connect(slot, device) {
         summary: 'It is connected in the other card.',
       });
     }
-    await applyMeasurement(slot);
+    slot.profile = profileFor(slot.idn);
+    resetFields(slot);
+    await applySettings(slot);
   } catch (error) {
     await slot.tmc.close().catch(() => { });
     throw error;
@@ -121,12 +151,116 @@ async function connect(slot, device) {
   showReading(slot, null);
 }
 
-async function applyMeasurement(slot) {
-  const result = await configure(slot.tmc, slot.measurement);
-  if (!result.ok) {
-    showMessage('warn', `${slotName(slot)} does not accept “${MEASUREMENTS[slot.measurement].label}”.`,
-      `The DMM answered ${result.errors.join(' ')} Choose another measurement.`);
+// ---------------------------------------------------------------------------------------------
+// the settings of each card: what the DMM does with them is shown in the card
+
+/** The range and the integration time in the fields of the card: { range, nplc } or { error }. */
+function readFields(slot) {
+  const rangeText = $(`${slot.prefix}range`).value.trim();
+  const range = rangeText === '' ? null : Number(rangeText);
+  if (range !== null && (!Number.isFinite(range) || range <= 0)) {
+    return { error: 'The range must be a number above 0, or empty for the automatic range.' };
   }
+  const nplcText = $(`${slot.prefix}nplc`).value;
+  return { range, nplc: nplcText === '' ? null : Number(nplcText) };
+}
+
+/** Back to the defaults: automatic range, the integration time of the DMM. */
+function resetFields(slot) {
+  $(`${slot.prefix}range`).value = '';
+  $(`${slot.prefix}nplc`).value = '';
+  $(`${slot.prefix}range-unit`).textContent = symbolOf(slot);
+  setPending(slot, false);
+  showApplyResult(slot, []);
+}
+
+function setPending(slot, pending) {
+  slot.pending = pending;
+  const apply = $(`${slot.prefix}apply`);
+  apply.classList.toggle('btn-primary', pending);
+  apply.classList.toggle('btn-outline-secondary', !pending);
+  $(`${slot.prefix}apply-state`).textContent = pending ? 'Changed, not applied yet.' : '';
+}
+
+/** lines: [{ ok, text }] */
+function showApplyResult(slot, lines) {
+  const list = $(`${slot.prefix}apply-result`);
+  list.replaceChildren(...lines.map((line) => {
+    const item = document.createElement('li');
+    item.className = line.ok ? 'ok' : 'err';
+    const icon = document.createElement('i');
+    icon.className = `bi ${line.ok ? 'bi-check-circle-fill' : 'bi-x-circle-fill'}`;
+    icon.setAttribute('aria-hidden', 'true');
+    item.append(icon, ' ', line.text);
+    return item;
+  }));
+}
+
+/**
+ * Sets the measurement up with the settings of the fields and shows what the DMM accepted.
+ * A setting that is not accepted goes back to its default in the field. Returns true when the DMM
+ * accepted everything.
+ */
+async function applySettings(slot) {
+  const fields = readFields(slot);
+  if (fields.error) {
+    showApplyResult(slot, [{ ok: false, text: fields.error }]);
+    $(`${slot.prefix}settings`).open = true;
+    return false;
+  }
+
+  const measurement = MEASUREMENTS[slot.measurement];
+  const result = await configure(slot.tmc, slot.measurement, fields, slot.profile);
+  const lines = [];
+  for (const item of result.results) {
+    const what = { measurement: measurement.label, range: `Range ${fields.range === null ? '' : formatRange(fields.range, measurement.symbol)}`, nplc: `NPLC ${fields.nplc}` }[item.setting];
+    if (item.skipped) {
+      lines.push({ ok: false, text: 'NPLC is not used for this measurement.' });
+    } else if (item.ok) {
+      if (item.setting !== 'measurement') {
+        lines.push({ ok: true, text: `${what} accepted.` });
+      }
+    } else {
+      lines.push({ ok: false, text: `${what} was not accepted by the DMM: ${item.errors.join(' ')}` });
+    }
+  }
+
+  const failed = (setting) => result.results.some((item) => item.setting === setting && !item.ok);
+  if (failed('measurement')) {
+    showMessage('warn', `${slotName(slot)} does not accept “${measurement.label}”.`,
+      `The DMM answered ${result.results[0].errors.join(' ')} Choose another measurement.`);
+  }
+  if (failed('range')) {
+    $(`${slot.prefix}range`).value = '';
+  }
+  if (failed('nplc')) {
+    $(`${slot.prefix}nplc`).value = '';
+  }
+
+  if (!failed('measurement')) {
+    try {
+      const now = await readSettings(slot.tmc, slot.measurement, { withNplc: fields.nplc !== null && !failed('nplc') }, slot.profile);
+      const parts = [];
+      if (now.range !== null) {
+        parts.push(`range ${formatRange(now.range, measurement.symbol)}${fields.range === null ? ' (automatic)' : ''}`);
+      }
+      if (now.nplc !== null) {
+        parts.push(`NPLC ${now.nplc}`);
+      }
+      if (parts.length > 0 && lines.length > 0) {
+        lines.push({ ok: true, text: `The DMM has now: ${parts.join(', ')}.` });
+      }
+    } catch (error) {
+      // The settings are shown without what the DMM says it has.
+    }
+  }
+
+  setPending(slot, false);
+  showApplyResult(slot, lines);
+  if (lines.some((line) => !line.ok) && !failed('measurement')) {
+    $(`${slot.prefix}settings`).open = true;
+  }
+  return result.ok;
 }
 
 for (const slot of slots) {
@@ -152,8 +286,22 @@ for (const slot of slots) {
     slot.measurement = event.target.value;
     showReading(slot, null);
     clearMessages();
+    resetFields(slot);
+    updateControls();
     try {
-      await applyMeasurement(slot);
+      await applySettings(slot);
+    } catch (error) {
+      showMessage('err', `${slotName(slot)} could not be set.`, error.message);
+    }
+  });
+
+  for (const field of ['range', 'nplc']) {
+    $(`${slot.prefix}${field}`).addEventListener('input', () => setPending(slot, true));
+  }
+  $(`${slot.prefix}apply`).addEventListener('click', async () => {
+    clearMessages();
+    try {
+      await applySettings(slot);
     } catch (error) {
       showMessage('err', `${slotName(slot)} could not be set.`, error.message);
     }
@@ -232,6 +380,13 @@ async function start() {
   }
 
   clearMessages();
+  for (const slot of active.filter((candidate) => candidate.pending)) {
+    // settings that were changed and not applied are applied first; a DMM that refuses them stops the start
+    if (!await applySettings(slot)) {
+      showMessage('warn', `The settings of ${slotName(slot)} were not accepted.`, 'See Advanced settings in its card. Logging did not start.');
+      return;
+    }
+  }
   data = { columns: active.map((slot) => ({ name: slotName(slot), unit: MEASUREMENTS[slot.measurement].unit })), rows: [] };
   saved = true;
   skipped = 0;
@@ -380,6 +535,9 @@ function updateControls() {
   for (const slot of slots) {
     $(`${slot.prefix}name`).disabled = running;
     $(`${slot.prefix}measurement`).disabled = running || !slot.connected;
+    $(`${slot.prefix}range`).disabled = running || !slot.connected;
+    $(`${slot.prefix}nplc`).disabled = running || !slot.connected || !MEASUREMENTS[slot.measurement].nplc;
+    $(`${slot.prefix}apply`).disabled = running || !slot.connected;
   }
   if (!running) {
     setStatus(statusText());
