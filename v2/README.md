@@ -42,6 +42,10 @@ Some Keysight (or Agilent) USB modular instruments remain in "firmware update" m
 [Frequency Response Analysis](fra) allows you to communicate with an oscilloscope and plot Bode and Nyquist diagrams directly in the browser.  
 This tool is particularly useful for analyzing the frequency response of systems without requiring additional software or setup.
 
+### DMM Logger
+[DMM Logger](dmmlogger) records the readings of one or two DMMs (Keysight / Agilent) at a steady interval and draws them as they come.  
+The readings can be saved as a CSV file, and a CSV file of the logger can be opened again to look at it, with or without a DMM.
+
 ## Changes from v1
 `webusbtmc/webusbtmc.js` has breaking changes.
 
@@ -57,7 +61,7 @@ This tool is particularly useful for analyzing the frequency response of systems
 - `await using tmc = new Webusbtmc()` closes the device when the runtime supports it.
 
 ## Tests
-The driver is tested against a fake `USBDevice`, and the frequency response analysis with synthetic waves (Node.js 20 or later):
+The driver is tested against a fake `USBDevice`, the frequency response analysis with synthetic waves, and the DMM logger (readings, CSV file, loop with a virtual clock) without instruments (Node.js 20 or later):
 
 ~~~
 cd v2

@@ -121,6 +121,7 @@ h1, h2, h3 { text-wrap: balance; }
   border-color: var(--accent);
 }
 .form-control, .form-select { background-color: var(--surface); color: var(--fg); border-color: var(--line); }
+.form-control:disabled, .form-select:disabled { background-color: var(--surface-2); color: var(--muted); opacity: 1; }
 .form-control::placeholder { color: var(--muted); opacity: .8; }
 .form-check-input:checked { background-color: var(--accent); border-color: var(--accent); }
 .field-label { font-size: 13px; color: var(--muted); font-weight: 600; margin-bottom: 4px; display: block; }
