@@ -2,7 +2,7 @@
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
 import {
-  MEASUREMENTS, STANDARD_SCPI, profileFor, parseReading, parseIdn, parseConfig, formatReading, formatRange, formatDuration, configure, readSettings, readValue,
+  MEASUREMENTS, STANDARD_SCPI, SUPPORTED_VENDORS, profileForVendor, supportedMakers, deviceFilters, parseReading, parseIdn, parseConfig, formatReading, formatRange, formatDuration, configure, readSettings, readValue,
 } from '../dmmlogger/dmm.js';
 import { buildCsv, parseCsv, summarize, isoLocal, fileStamp } from '../dmmlogger/csv.js';
 import { runLogger } from '../dmmlogger/logger.js';
@@ -80,9 +80,30 @@ test('NPLC is for DC voltage, DC current and resistance only', () => {
   assert.deepEqual(Object.entries(MEASUREMENTS).filter(([, m]) => m.nplc).map(([key]) => key), ['dcv', 'dci', 'res']);
 });
 
-test('profileFor gives the standard commands', () => {
-  assert.equal(profileFor({ maker: 'Agilent Technologies', model: '34405A' }), STANDARD_SCPI);
-  assert.equal(profileFor(parseIdn('SOME MAKER,MODEL,1,1')), STANDARD_SCPI);
+test('only the makers that were tried are supported, by the USB vendor ID', () => {
+  assert.equal(profileForVendor(0x0957), STANDARD_SCPI);   // Keysight (Agilent)
+  assert.equal(profileForVendor(0x0699), null);            // Tektronix
+  assert.equal(profileForVendor(0x1AB1), null);            // Rigol
+  assert.equal(profileForVendor(undefined), null);
+  assert.equal(supportedMakers(), 'Keysight (Agilent)');
+});
+
+test('the dialog of the browser offers the USBTMC instruments of the supported makers only', () => {
+  assert.deepEqual(deviceFilters(), [{ vendorId: 0x0957, classCode: 0xFE, subclassCode: 0x03, protocolCode: 0x01 }]);
+});
+
+test('a maker that is added to the table is offered and has its profile', () => {
+  const vendorId = 0xABCD;
+  const profile = { ...STANDARD_SCPI, name: 'Another maker' };
+  SUPPORTED_VENDORS[vendorId] = { name: 'Another maker', profile };
+  try {
+    assert.equal(profileForVendor(vendorId), profile);
+    assert.deepEqual(deviceFilters().map((filter) => filter.vendorId), [0x0957, vendorId]);
+    assert.equal(supportedMakers(), 'Keysight (Agilent), Another maker');
+  } finally {
+    delete SUPPORTED_VENDORS[vendorId];
+  }
+  assert.equal(profileForVendor(vendorId), null);
 });
 
 test('parseConfig reads the range and the resolution', () => {

@@ -145,8 +145,9 @@ function hex4(value) {
  *   onChange(state): optional, called with 'off' | 'busy' | 'on' | 'err'
  *   describe(device): optional, the { name, detail } to show while connected
  *   prefix: optional, for a page with several instruments (see the top of this file)
+ *   filters: optional, the filters of the dialog of the browser (any USBTMC instrument by default)
  */
-export function setupConnectButton({ isOpen, open, close, onChange = () => { }, describe = null, prefix = '' }) {
+export function setupConnectButton({ isOpen, open, close, onChange = () => { }, describe = null, prefix = '', filters = usbtmcFilters }) {
   const button = $(prefix + 'connect-button');
 
   const change = (state, details) => {
@@ -168,7 +169,7 @@ export function setupConnectButton({ isOpen, open, close, onChange = () => { }, 
 
     let device;
     try {
-      device = await navigator.usb.requestDevice({ 'filters': usbtmcFilters });
+      device = await navigator.usb.requestDevice({ 'filters': filters });
     } catch (error) {
       if (error.name !== 'NotFoundError') {   // NotFoundError: the dialog was closed without choosing
         showError(error);

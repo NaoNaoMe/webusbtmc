@@ -3,7 +3,7 @@
 import Webusbtmc from '../webusbtmc/webusbtmc.js';
 import { setupConnectButton, setConnectionState, showMessage, clearMessages, setupHowTo } from '../common/ui.js';
 import {
-  MEASUREMENTS, profileFor, parseIdn, formatReading, formatRange, formatDuration, configure, readSettings, readValue,
+  MEASUREMENTS, profileForVendor, supportedMakers, deviceFilters, parseIdn, formatReading, formatRange, formatDuration, configure, readSettings, readValue,
 } from './dmm.js';
 import { buildCsv, parseCsv, summarize, fileStamp } from './csv.js';
 import { runLogger } from './logger.js';
@@ -133,6 +133,14 @@ const noStats = { min: null, max: null, mean: null };
 // the connection of each card
 
 async function connect(slot, device) {
+  // Only the makers that were tried: nothing is sent to an instrument of another maker
+  const profile = profileForVendor(device.vendorId);
+  if (profile === null) {
+    throw Object.assign(new Error(`The DMMs of these makers are supported: ${supportedMakers()}.`), {
+      title: 'This DMM is not supported.',
+      summary: 'The maker of this instrument has not been tried.',
+    });
+  }
   await slot.tmc.open(device);
   try {
     slot.idn = parseIdn(await slot.tmc.query('*IDN?'));
@@ -144,7 +152,7 @@ async function connect(slot, device) {
         summary: 'It is connected in the other card.',
       });
     }
-    slot.profile = profileFor(slot.idn);
+    slot.profile = profile;
     resetFields(slot);
     await applySettings(slot);
   } catch (error) {
@@ -274,6 +282,7 @@ for (const slot of slots) {
 for (const slot of slots) {
   setupConnectButton({
     prefix: slot.prefix,
+    filters: deviceFilters(),
     isOpen: () => slot.connected,
     open: (device) => connect(slot, device),
     close: async () => {

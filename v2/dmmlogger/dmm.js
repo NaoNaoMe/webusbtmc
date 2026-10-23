@@ -18,8 +18,8 @@ export const MEASUREMENTS = {
 };
 
 // How a DMM is told what to do. The standard SCPI commands are the ones of the DMMs of Keysight
-// (Agilent). A DMM of another maker that needs other commands gets a profile of its own
-// (see profileFor); nothing else in the page depends on the commands.
+// (Agilent). A maker that needs other commands gets a profile of its own (see SUPPORTED_VENDORS);
+// nothing else in the page depends on the commands.
 export const STANDARD_SCPI = {
   name: 'Standard SCPI',
   clear: '*CLS',
@@ -40,9 +40,27 @@ export const STANDARD_SCPI = {
   },
 };
 
-/** The profile for the instrument that answered `idn` (from parseIdn). Only one exists yet. */
-export function profileFor(idn) {
-  return STANDARD_SCPI;
+// The makers whose DMMs have been tried, by the vendor ID of the USB device. The dialog of the browser
+// offers only their instruments and the page refuses any other one. A maker that is added here, with the
+// profile of its commands, is offered and used; nothing else in the page has to change.
+export const SUPPORTED_VENDORS = {
+  0x0957: { name: 'Keysight (Agilent)', profile: STANDARD_SCPI },
+};
+
+/** The profile for a USB vendor ID, or null when the maker has not been tried. */
+export function profileForVendor(vendorId) {
+  const vendor = SUPPORTED_VENDORS[vendorId];
+  return vendor ? vendor.profile : null;
+}
+
+/** The names of the supported makers, for a message. */
+export function supportedMakers() {
+  return Object.values(SUPPORTED_VENDORS).map((vendor) => vendor.name).join(', ');
+}
+
+/** The filters for the dialog of the browser: USBTMC instruments of the supported makers. */
+export function deviceFilters() {
+  return Object.keys(SUPPORTED_VENDORS).map((vendorId) => ({ vendorId: Number(vendorId), classCode: 0xFE, subclassCode: 0x03, protocolCode: 0x01 }));
 }
 
 // A DMM answers 9.9E37 when the input is over the range.
