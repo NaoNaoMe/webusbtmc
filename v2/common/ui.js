@@ -1,5 +1,7 @@
 // Small helpers shared by the samples: the connection bar, messages and the log.
 // The page needs the elements #conn-dot, #conn-name, #conn-sub, #connect-button and #alerts.
+// A page with several instruments gives each a prefix ('dmm1-' for #dmm1-conn-dot and so on) and
+// puts the buttons that need that connection inside the element #dmm1-card.
 'use strict';
 
 const $ = (id) => document.getElementById(id);
@@ -11,9 +13,9 @@ const spinner = '<span class="spinner-border spinner-border-sm me-2" role="statu
  * state: 'off' | 'busy' | 'on' | 'err'
  * Buttons marked with data-needs-connection are enabled only while connected.
  */
-export function setConnectionState(state, { name = '', detail = '', error = '' } = {}) {
-  const button = $('connect-button');
-  const dot = $('conn-dot');
+export function setConnectionState(state, { name = '', detail = '', error = '' } = {}, prefix = '') {
+  const button = $(prefix + 'connect-button');
+  const dot = $(prefix + 'conn-dot');
   dot.className = 'dot' + ({ on: ' ok', err: ' err', busy: ' busy' }[state] || '');
 
   const text = {
@@ -22,8 +24,8 @@ export function setConnectionState(state, { name = '', detail = '', error = '' }
     on: [name, detail],
     err: ['Could not connect', error],
   }[state];
-  $('conn-name').textContent = text[0];
-  $('conn-sub').textContent = text[1];
+  $(prefix + 'conn-name').textContent = text[0];
+  $(prefix + 'conn-sub').textContent = text[1];
 
   button.disabled = state === 'busy';
   button.toggleAttribute('aria-busy', state === 'busy');
@@ -36,7 +38,7 @@ export function setConnectionState(state, { name = '', detail = '', error = '' }
     err: 'Try again',
   }[state];
 
-  document.querySelectorAll('[data-needs-connection]').forEach((element) => {
+  (prefix ? $(prefix + 'card') : document).querySelectorAll('[data-needs-connection]').forEach((element) => {
     element.disabled = state !== 'on';
   });
 }
@@ -93,7 +95,7 @@ export function showError(error) {
         'It may be used by another program. Close NI-VISA, Keysight IO Libraries or similar tools. On Windows the WinUSB driver is required.');
       break;
     default:
-      showMessage('err', 'Something went wrong.', message);
+      showMessage('err', (error && error.title) || 'Something went wrong.', message);   // a page can give its error a title
   }
 }
 
@@ -141,12 +143,14 @@ function hex4(value) {
  *   open(device):  connects to the chosen USB device (async)
  *   close():       disconnects (async)
  *   onChange(state): optional, called with 'off' | 'busy' | 'on' | 'err'
+ *   describe(device): optional, the { name, detail } to show while connected
+ *   prefix: optional, for a page with several instruments (see the top of this file)
  */
-export function setupConnectButton({ isOpen, open, close, onChange = () => { } }) {
-  const button = $('connect-button');
+export function setupConnectButton({ isOpen, open, close, onChange = () => { }, describe = null, prefix = '' }) {
+  const button = $(prefix + 'connect-button');
 
   const change = (state, details) => {
-    setConnectionState(state, details);
+    setConnectionState(state, details, prefix);
     onChange(state);
   };
 
@@ -176,13 +180,13 @@ export function setupConnectButton({ isOpen, open, close, onChange = () => { } }
     change('busy');
     try {
       await open(device);
-      change('on', {
+      change('on', describe ? describe(device) : {
         name: device.productName || 'USB instrument',
         detail: 'VID ' + hex4(device.vendorId) + ' · PID ' + hex4(device.productId),
       });
     } catch (error) {
       console.error(error);
-      change('err', { error: 'The instrument was found but could not be opened.' });
+      change('err', { error: (error && error.summary) || 'The instrument was found but could not be opened.' });
       showError(error);
     }
   });
